@@ -1,0 +1,6 @@
+{
+    "sketch": "LTC/LTC.ino",
+    "board": "arduino:avr:uno",
+    "port": "/dev/tty.usbmodem101",
+    "programmer": "avrisp"
+}
