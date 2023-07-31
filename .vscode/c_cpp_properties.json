@@ -27,7 +27,7 @@
                 "-fno-threadsafe-statics",
                 "-Wno-error=narrowing"
             ],
-            "intelliSenseMode": "gcc-x64",
+            "intelliSenseMode": "gcc-x86",
             "includePath": [
                 "/Users/ian/Library/Arduino15/packages/arduino/hardware/avr/1.8.6/cores/arduino",
                 "/Users/ian/Library/Arduino15/packages/arduino/hardware/avr/1.8.6/variants/standard",
