@@ -27,7 +27,7 @@ volatile unsigned short validBitCount;
 volatile char state = 0;
 
 static unsigned short syncPattern = 0xBFFC; // (B00111111 * 256) + B11111101;
-volatile unsigned short syncValue;
+volatile unsigned short syncValue; // TODO: ??? does this always keep track of the last 16 digits and checks match with syncPattern with each interrupt? something like that?
 
 volatile byte frameBitCount;
 
@@ -38,7 +38,7 @@ volatile byte lastBit;
 
 ISR(TIMER1_CAPT_vect)
 {
-    TCCR1B ^= _BV(ICES1); // toggle edge capture
+    TCCR1B ^= _BV(ICES1); // toggle edge capture (turn it off bc it must have been on to get here)
     bitTime = ICR1; // store counter value at edge
     TCNT1 = 0; // reset counter
 
@@ -54,9 +54,13 @@ ISR(TIMER1_CAPT_vect)
     }
 
     // increment valid bit counts, without overflow
-    validBitCount = validBitCount < 65535 ? validBitCount + 1 : 0;
+    validBitCount = validBitCount < 65535 
+        ? validBitCount + 1 
+        : 0;
 
-    currentBit = bitTime > BIT_TIME_THRESHOLD ? 0 : 1;
+    currentBit = bitTime > BIT_TIME_THRESHOLD 
+        ? 0 
+        : 1;
 
     // don't count 1 twice!
     if (currentBit == 1 && lastBit == 1) {
@@ -65,6 +69,7 @@ ISR(TIMER1_CAPT_vect)
     }
     lastBit = currentBit;
 
+    // TODO: ???
     // update frame sync pattern detection
     syncValue = (syncValue >> 1) + (currentBit << 15);
 
@@ -101,14 +106,16 @@ ISR(TIMER1_CAPT_vect)
             byte bIdx = frameBitCount & 0x07;
             byte* f = frames[currentFrameIndex];
 
+            // TODO: what is this ~ syntax?
             f[idx] = (f[idx] & ~(1 << bIdx)) | (currentBit << bIdx);
 
-            /*
-            if(currentBit)
-              f[idx] |= 1 << bIdx;
-             else
-              f[idx] &= ~(1 << bIdx);
-            */
+        // TODO: orig author commented this out -- why? what does it do?
+        /*
+        if(currentBit)
+            f[idx] |= 1 << bIdx;
+        else
+            f[idx] &= ~(1 << bIdx);
+        */
 
             frameBitCount++;
         }
