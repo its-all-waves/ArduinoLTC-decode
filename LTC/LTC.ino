@@ -24,7 +24,7 @@
 
 // prototypes
 void decode_and_update_time_vals(),
-    update(char* TC_string),
+    update_TC_string(char* displayed_string),
     decode_UB_and_update(char* UB_string),
     print_to_segment_display(char* TC_string);
 
@@ -50,10 +50,10 @@ char UB_string[12] = {
 };
 
 // the time values (in decimal) extracted from LTC in the decoder
-uint8_t h,
-    m,
-    s,
-    f;
+uint8_t h, m, s, f;
+
+// user bit fields/chars extracted from LTC in the decoder
+uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
 
 // 10 bytes * 8 bits = 80 bits = SMPTE/LTC frame length
 typedef byte LTCFrame[10];
@@ -266,15 +266,15 @@ void loop()
 
     // decode time values and update the timecode string to be displayed
     decode_and_update_time_vals();
-    update(TC_string);
+    update_TC_string();
 
     // update the user bits string (but don't display it until appropriate)
     decode_UB_and_update(UB_string);
 
     // print to segmented LED display + serial monitor
     // print_to_segment_display(TC_string);
-    print_to_segment_display(UB_string);
     // Serial.println(TC_string);
+    print_to_segment_display(UB_string);
     Serial.println(UB_string);
 
     // reset
@@ -466,13 +466,27 @@ void startLTCGenerator()
                     _ _ . _ _ . _ _ . _ _ \0
   char[12] index:   0 1 2 3 4 5 6 7 8 9 0 1
 */
-void update(char* TC_string)
+void update_TC_string()
 {
-    sprintf(TC_string, "%02d.%02d.%02d.%02d", h, m, s, f);
+    sprintf(
+        TC_string,
+        "%02d.%02d.%02d.%02d",
+        h, m, s, f
+    );
+}
+
+void update_UB_string() 
+{
+    sprintf(
+        UB_string, 
+        "%d%d.%d%d.%d%d.%d%d",
+        ub0, ub1, ub2, ub3, ub4, ub5, ub6, ub7
+    );
 }
 
 /* decode time vals from the latest frame's LTC into decimal integers */
-void decode_and_update_time_vals() {
+void decode_and_update_time_vals() 
+{
     // 10s place + 1s place
     h = (fptr[7] & 0x03) * 10 + (fptr[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3) 
     m = (fptr[5] & 0x07) * 10 + (fptr[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
@@ -483,70 +497,24 @@ void decode_and_update_time_vals() {
 /* decode userbit hex vals from the bytes of an LTC frame and use them to update
 the user bits string to be displayed */
 void decode_UB_and_update(char* UB_string) {
+    // lookup table for decoding user bits from binary
+    #define HEX_CHARS "0123456789ABCDEF"
 
-        // lookup table for decoding user bits from binary
-        #define HEX_CHARS "0123456789ABCDEF"
+    /* rshift 4 bc, despite picking out the large half of LTC byte, we're
+    using 1,2,4,8 places only, as that's all that's needed to make a hex
+    (right shift is always towards LSB) 
+    & 0xF0 -> access largest 4 bits of this LTC byte by masking off the
+    smallest 4 bits */
+    ub7 = (fptr[0] & 0xF0) >> 4; // 1 digit bt 0 and F
+    ub6 = (fptr[1] & 0xF0) >> 4; // 1 digit bt 0 and F
+    ub5 = (fptr[2] & 0xF0) >> 4; // 1 digit bt 0 and F
+    ub4 = (fptr[3] & 0xF0) >> 4; // 1 digit bt 0 and F
+    ub3 = (fptr[4] & 0xF0) >> 4; // 1 digit bt 0 and F
+    ub2 = (fptr[5] & 0xF0) >> 4; // 1 digit bt 0 and F
+    ub1 = (fptr[6] & 0xF0) >> 4; // 1 digit bt 0 and F
+    ub0 = (fptr[7] & 0xF0) >> 4; // 1 digit bt 0 and F
 
-        /* rshift 4 bc, despite picking out the large half of LTC byte, we're
-        using 1,2,4,8 places only, as that's all that's needed to make a hex
-        (right shift is always towards LSB) 
-        & 0xF0 -> access largest 4 bits of this LTC byte by masking off the
-        smallest 4 bits */
-        uint8_t ub7 = (fptr[0] & 0xF0) >> 4; // 1 digit bt 0 and F
-        uint8_t ub6 = (fptr[1] & 0xF0) >> 4; // 1 digit bt 0 and F
-        uint8_t ub5 = (fptr[2] & 0xF0) >> 4; // 1 digit bt 0 and F
-        uint8_t ub4 = (fptr[3] & 0xF0) >> 4; // 1 digit bt 0 and F
-        uint8_t ub3 = (fptr[4] & 0xF0) >> 4; // 1 digit bt 0 and F
-        uint8_t ub2 = (fptr[5] & 0xF0) >> 4; // 1 digit bt 0 and F
-        uint8_t ub1 = (fptr[6] & 0xF0) >> 4; // 1 digit bt 0 and F
-        uint8_t ub0 = (fptr[7] & 0xF0) >> 4; // 1 digit bt 0 and F
-    
-        // set this UB character to the hex char from this UB field
-        UB_string[0]  =  HEX_CHARS[ub0];
-        UB_string[1]  =  HEX_CHARS[ub1];
-        UB_string[3]  =  HEX_CHARS[ub2];
-        UB_string[4]  =  HEX_CHARS[ub3];
-        UB_string[6]  =  HEX_CHARS[ub4];
-        UB_string[7]  =  HEX_CHARS[ub5];
-        UB_string[9]  =  HEX_CHARS[ub6];
-        UB_string[10] =  HEX_CHARS[ub7];
-
-
-
-    // from the latest frame, decode user bit binary into hex values
-    // user bit field/char (starting at 0) aligns with LTC byte #
-    // #define TOTAL_DISPLAYED_CHARS 7 // TODO: is this 8 or 12? 8 chars + 3 separators (.)
-    // for (uint8_t i = 0; i < TOTAL_DISPLAYED_CHARS; i ++) {
-    //     // TODO: adjust the UB_string indices to account for separators
-    //     // continue if index is a separator? (quick thought, maybe crap)
-
-
-
-    //     if (i == 2 || i == 5 || i == 8 || i == 11)
-    //         continue;
-
-    //     // TODO: MSB or LSB?
-    //     /* rshift 4 bc, despite picking out the large half of LTC byte, we're
-    //     using 1,2,4,8 places only, as that's all that's needed to make a hex
-    //     (right shift is always towards LSB) 
-    //     & 0xF0 -> access largest 4 bits of this LTC byte by masking off the
-    //     smallest 4 bits */
-    //     uint8_t decoded_hex_val = (fptr[i] & 0xF0) >> 4; // 1 digit bt 0 and F
-        
-    //     // // DEBUG
-    //     Serial.print("char @ i = ");
-    //     Serial.print(decoded_hex_val);
-    //     Serial.println();
-
-    //     // set this UB character to the hex char from this UB field
-    //     UB_string[i] = HEX_CHARS[decoded_hex_val];
-        
-    //     // // // DEBUG
-    //     // Serial.print("char @ i = ");
-    //     // Serial.print(UB_string[i]);
-    //     // Serial.println();
-
-    // }
+    update_UB_string();
 }
 
 /* print the LTC string to the 8 digit, 7 segment, LED display */
