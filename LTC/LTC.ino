@@ -5,6 +5,14 @@
 #define SIGNAL_LED 13
 #define LOCK_LED 6
 
+/* TODO: how are these BIT_TIME_X constants used?
+    seems to be an error check
+        if the width in microsec of a decoded bit is too short or long to be
+            considered an LTC bit 
+    if this was the case, wouldn't we have to measure the time between
+        hi/lo transitions somewhere?
+            is that happening somewhere?
+ */
 #define BIT_TIME_THRESHOLD 700
 #define BIT_TIME_MIN 250
 #define BIT_TIME_MAX 1500
@@ -15,8 +23,10 @@
 #define GENERATOR 2
 
 // prototypes
-void update(char* LTC_string),
-    print_to_display(char* LTC_string);
+void decode_and_update_time_vals(),
+    update(char* TC_string),
+    decode_UB_and_update(char* UB_string),
+    print_to_segment_display(char* TC_string);
 
 void startLTCDecoder(),
     stopLTCDecoder(),
@@ -26,31 +36,38 @@ void startLTCDecoder(),
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GLOBAL VARIABLES
 
-// instantiate an LED object with the IIC address of the display
+// instantiate segmented display object with the IIC address of the display
 DFRobot_LedDisplayModule LED(&Wire, 0xE0);
 
 // the timecode string to print: 8 digits + 3 separators (.) + \0
-char LTC_string[12];
+char TC_string[12] = {
+    '0', '0', '.', '0', '0', '.', '0', '0', '.', '0', '0', '\0'
+};
 
-// the time values extracted from LTC in the decoder
-byte h;
-byte m;
-byte s;
-byte f;
+// the user bits string to print: same format as LTC_string
+char UB_string[12] = {
+    '0', '0', '.', '0', '0', '.', '0', '0', '.', '0', '0', '\0'
+};
+
+// the time values (in decimal) extracted from LTC in the decoder
+uint8_t h,
+    m,
+    s,
+    f;
 
 // 10 bytes * 8 bits = 80 bits = SMPTE/LTC frame length
 typedef byte LTCFrame[10];
 
-// store 2 frame -- TODO: WHY?
+// store 2 frames -- TODO: WHY 2? why not initialize to all zeros?
 volatile LTCFrame frames[2] = {
     { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF },
     { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF }
 };
+volatile byte currentFrameIndex; // index of frames[2] -- can be 0 or 1 (ASSUMPTION)
 
-volatile byte currentFrameIndex; // current frame written by ISR ???
 volatile boolean frameAvailable; // indicates received last bit of an LTC frame
 
-// the LTC spec's sync word, fixed bit pattern 0011 1111 1111 1101 
+// the LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101 
 const unsigned short syncPattern = 0xBFFC;
 // read from incoming LTC 
 // when matches syncPattern, indicates end of a frame (frameAvailable = true)
@@ -61,19 +78,20 @@ volatile char state = NOSYNC;
 // running counter of valid frames decoded
 volatile unsigned long validFrameCount;
 volatile unsigned short validBitCount;
+// counts bits up to 80, resets upon frameAvailable (got last bit of a frame)
 volatile byte frameBitCount;
 
 volatile byte oneFlag = 0;
 volatile byte currentBit;
 volatile byte lastBit;
-volatile unsigned int bitTime;
-
-int previousOutputFrameIndex = 0;
+volatile unsigned int bitTime; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits
 
 // used to update ltc data in the ISR for capture (decode mode)
 byte idx, bIdx;
 
-byte* fptr; // used to update time values in main loop (decode mode)
+byte* fptr; // index into this to access the bytes of the current LTC frame (decode mode)
+
+int previousOutputFrameIndex = 0;
 
 struct LTCGenerator {
     volatile byte bitIndex;
@@ -213,16 +231,18 @@ void setup()
     // make all 8 digits available on the display
     LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
 
-    LTC_string[11] = '\0'; // terminate the string
-
+    // set the mode of operation
     startLTCDecoder();
     // startLTCGenerator();
 }
 
+/* check for a new frame to print, print it (decoder) */
 void loop()
 {
-    // status led
-    digitalWrite(SIGNAL_LED, validBitCount > 80 ? HIGH : LOW); // valid after 1 frame
+    // indicate valid LTC signal -> set signal LED hi once we've counted 80 bits
+    // (a complete LTC frame) 
+    digitalWrite(SIGNAL_LED, validBitCount > 80 ? HIGH : LOW);
+    // set sync lock indicator LED hi when synced
     digitalWrite(LOCK_LED, state == SYNCED ? HIGH : LOW);
 
     if (state == GENERATOR) {
@@ -230,33 +250,32 @@ void loop()
         return;
     }
 
+    // mode of operation is DECODER
     // state is NOSYNC or SYNCED
+
+    // only proceed to update time vars if we've past the end of an LTC frame
     if (!frameAvailable)
         return;
 
-    // reached end of an LTC frame (frameAvailable true), so there's new data to print
+    // reached end of a frame, so there's new data to print
     fptr = frames[1 - currentFrameIndex]; // apparently this error can be ignored (?): a value of type "volatile byte *" cannot be assigned to an entity of type "byte *"C/C++(513)
     Serial.print("Frame: ");
     Serial.print(validFrameCount - 1);
 
     Serial.print(" - ");
 
-    h = (fptr[7] & 0x03) * 10 + (fptr[6] & 0x0F);
-    m = (fptr[5] & 0x07) * 10 + (fptr[4] & 0x0F);
-    s = (fptr[3] & 0x07) * 10 + (fptr[2] & 0x0F);
-    f = (fptr[1] & 0x03) * 10 + (fptr[0] & 0x0F);
+    // decode time values and update the timecode string to be displayed
+    decode_and_update_time_vals();
+    update(TC_string);
 
-    /* TODO: figure out user bits
-    byte u4 = (fptr[15] & 0x03) * 10 + (fptr[14] & 0x0F);
-    byte u3 = (fptr[13] & 0x03) * 10 + (fptr[12] & 0x0F);
-    byte u2 = (fptr[11] & 0x03) * 10 + (fptr[10] & 0x0F);
-    byte u1 = (fptr[9] & 0x03) * 10 + (fptr[8] & 0x0F);
-    */
+    // update the user bits string (but don't display it until appropriate)
+    decode_UB_and_update(UB_string);
 
     // print to segmented LED display + serial monitor
-    update(LTC_string);
-    print_to_display(LTC_string);
-    Serial.println(LTC_string);
+    // print_to_segment_display(TC_string);
+    print_to_segment_display(UB_string);
+    // Serial.println(TC_string);
+    Serial.println(UB_string);
 
     // reset
     frameAvailable = false;
@@ -265,6 +284,7 @@ void loop()
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // DECODER
 
+/* triggered when a transition (?) is detected at the input capture pin */
 ISR(TIMER1_CAPT_vect)
 {
     TCCR1B ^= _BV(ICES1); // toggle edge capture
@@ -323,23 +343,29 @@ ISR(TIMER1_CAPT_vect)
             return;
         }
 
-        if (syncValue == syncPattern) {
-            // this is the last bit of a frame, so... 
-            frameAvailable = true;
+        // if this is the last bit of a frame
+        if (syncValue == syncPattern) { 
+            frameAvailable = true; // signal that we've captured a full frame
 
             // reset bit counter and increment total frame count
             frameBitCount = 0;
             validFrameCount ++;
 
-            currentFrameIndex = 1 - currentFrameIndex; // ???
+            // ??? TODO: is this a boolean -- only 0 or 1? frames[] holds only 2 LTC frames
+            currentFrameIndex = 1 - currentFrameIndex;
             return;
         }
+        
+        // we're on a bit between the start & end of the current frame
 
-        // update ltc data
-        idx = frameBitCount / 8;
-        bIdx = frameBitCount & 0x07;
-        byte* f = frames[currentFrameIndex]; // doesn't compile if global
+        // ptr to the current frame in the array of LTC frames (doesn't compile if global)
+        byte* f = frames[currentFrameIndex]; // (grab all the bits we've gathered for this frame so far)
 
+        // TODO: why is this different from currentFrameIndex? 
+        idx = frameBitCount / 8; // get the index of a byte from frames[]
+        bIdx = frameBitCount & 0x07; // the bit index of this frame
+
+        // update the current bit (in its byte at f[idx]) with the value of currentBit 
         f[idx] = (f[idx] & ~(1 << bIdx)) | (currentBit << bIdx);
 
         /*
@@ -354,6 +380,7 @@ ISR(TIMER1_CAPT_vect)
     }
 }
 
+/* triggered upon signal loss (or discontinuity?) at input capture pin */
 ISR(TIMER1_OVF_vect)
 {
     if (state == GENERATOR)
@@ -439,21 +466,100 @@ void startLTCGenerator()
                     _ _ . _ _ . _ _ . _ _ \0
   char[12] index:   0 1 2 3 4 5 6 7 8 9 0 1
 */
-void update(char* LTC_string)
+void update(char* TC_string)
 {
-    sprintf(LTC_string, "%02d.%02d.%02d.%02d", h, m, s, f);
+    sprintf(TC_string, "%02d.%02d.%02d.%02d", h, m, s, f);
+}
+
+/* decode time vals from the latest frame's LTC into decimal integers */
+void decode_and_update_time_vals() {
+    // 10s place + 1s place
+    h = (fptr[7] & 0x03) * 10 + (fptr[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3) 
+    m = (fptr[5] & 0x07) * 10 + (fptr[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
+    s = (fptr[3] & 0x07) * 10 + (fptr[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
+    f = (fptr[1] & 0x03) * 10 + (fptr[0] & 0x0F);
+}
+
+/* decode userbit hex vals from the bytes of an LTC frame and use them to update
+the user bits string to be displayed */
+void decode_UB_and_update(char* UB_string) {
+
+        // lookup table for decoding user bits from binary
+        #define HEX_CHARS "0123456789ABCDEF"
+
+        /* rshift 4 bc, despite picking out the large half of LTC byte, we're
+        using 1,2,4,8 places only, as that's all that's needed to make a hex
+        (right shift is always towards LSB) 
+        & 0xF0 -> access largest 4 bits of this LTC byte by masking off the
+        smallest 4 bits */
+        uint8_t ub7 = (fptr[0] & 0xF0) >> 4; // 1 digit bt 0 and F
+        uint8_t ub6 = (fptr[1] & 0xF0) >> 4; // 1 digit bt 0 and F
+        uint8_t ub5 = (fptr[2] & 0xF0) >> 4; // 1 digit bt 0 and F
+        uint8_t ub4 = (fptr[3] & 0xF0) >> 4; // 1 digit bt 0 and F
+        uint8_t ub3 = (fptr[4] & 0xF0) >> 4; // 1 digit bt 0 and F
+        uint8_t ub2 = (fptr[5] & 0xF0) >> 4; // 1 digit bt 0 and F
+        uint8_t ub1 = (fptr[6] & 0xF0) >> 4; // 1 digit bt 0 and F
+        uint8_t ub0 = (fptr[7] & 0xF0) >> 4; // 1 digit bt 0 and F
+    
+        // set this UB character to the hex char from this UB field
+        UB_string[0]  =  HEX_CHARS[ub0];
+        UB_string[1]  =  HEX_CHARS[ub1];
+        UB_string[3]  =  HEX_CHARS[ub2];
+        UB_string[4]  =  HEX_CHARS[ub3];
+        UB_string[6]  =  HEX_CHARS[ub4];
+        UB_string[7]  =  HEX_CHARS[ub5];
+        UB_string[9]  =  HEX_CHARS[ub6];
+        UB_string[10] =  HEX_CHARS[ub7];
+
+
+
+    // from the latest frame, decode user bit binary into hex values
+    // user bit field/char (starting at 0) aligns with LTC byte #
+    // #define TOTAL_DISPLAYED_CHARS 7 // TODO: is this 8 or 12? 8 chars + 3 separators (.)
+    // for (uint8_t i = 0; i < TOTAL_DISPLAYED_CHARS; i ++) {
+    //     // TODO: adjust the UB_string indices to account for separators
+    //     // continue if index is a separator? (quick thought, maybe crap)
+
+
+
+    //     if (i == 2 || i == 5 || i == 8 || i == 11)
+    //         continue;
+
+    //     // TODO: MSB or LSB?
+    //     /* rshift 4 bc, despite picking out the large half of LTC byte, we're
+    //     using 1,2,4,8 places only, as that's all that's needed to make a hex
+    //     (right shift is always towards LSB) 
+    //     & 0xF0 -> access largest 4 bits of this LTC byte by masking off the
+    //     smallest 4 bits */
+    //     uint8_t decoded_hex_val = (fptr[i] & 0xF0) >> 4; // 1 digit bt 0 and F
+        
+    //     // // DEBUG
+    //     Serial.print("char @ i = ");
+    //     Serial.print(decoded_hex_val);
+    //     Serial.println();
+
+    //     // set this UB character to the hex char from this UB field
+    //     UB_string[i] = HEX_CHARS[decoded_hex_val];
+        
+    //     // // // DEBUG
+    //     // Serial.print("char @ i = ");
+    //     // Serial.print(UB_string[i]);
+    //     // Serial.println();
+
+    // }
 }
 
 /* print the LTC string to the 8 digit, 7 segment, LED display */
-void print_to_display(char* LTC_string)
+void print_to_segment_display(char* TC_string)
 {
     LED.print(
-        &LTC_string[0], &LTC_string[1], // hours, ones place + '.'
-        &LTC_string[3], &LTC_string[4], // minutes, "
-        &LTC_string[6], &LTC_string[7], // seconds, "
-        &LTC_string[9], &LTC_string[10] // frames, "
+        &TC_string[0], &TC_string[1], // hours, ones place + '.'
+        &TC_string[3], &TC_string[4], // minutes, "
+        &TC_string[6], &TC_string[7], // seconds, "
+        &TC_string[9], &TC_string[10] // frames, "
     );
 }
+
 
 /* TODO: USER BITS
 
@@ -464,8 +570,6 @@ void print_to_display(char* LTC_string)
     32 bits = 4 bytes
     1 byte = max value 255
 
-    each UB character gets a half a byte?
-    
     * * * TODO: MSB or LSB? * * * 
     spec says LSB, but everything else is MSB... (confirm the latter)
 
@@ -485,4 +589,43 @@ void print_to_display(char* LTC_string)
     8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  <- place - what should these values be?
                    1                 2                 3                 4  <- UB byte number          
           1        2        3        4        5        6        7        8  <- UB character
- */
+
+
+    FIGURE IT OUT
+
+    1) where are the user bit fields?
+
+        field/char #     large 1/2 of    LTC bits
+        ++++++++++++     ++++++++++++    ++++++++
+                   1     byte 1          04-07
+                   2     byte 2          12-15
+                   3     byte 3          20-23
+                   4     byte 4          28-31
+                   5     byte 5          36-39
+                   6     byte 6          44-47
+                   7     byte 7          52-55
+                   8     byte 8          60-63
+
+    2) on which end of the UB string is field/char 1?
+
+        ? ? ?
+
+    3) how do we access the bits in the 2nd half of the data bytes 1-8
+       (9-10 is the sync word)
+
+
+    4) how do we 
+
+
+
+    THE INTENTION OF THE USERBITS DECODING SECTION - IS IT CORRECT?
+
+    looks at the first 8 bytes of a 10-byte schema and extracts the last 4
+    bits of each byte. Specifically, it is using a right shift operation (>> 4)
+    to move the last 4 bits of each byte into the first 4 positions, and then
+    using a bitwise AND operation (& 0x0F) to mask out all but the last 4 bits.
+    The resulting value is then used as an index into the string
+    "0123456789ABCDEF" to convert the binary value into a hexadecimal character.
+    This process is repeated for each of the first 8 bytes in the schema, and
+    the resulting hexadecimal characters are stored in the userBitsString array.
+*/
