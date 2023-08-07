@@ -1,5 +1,5 @@
 {
-    "sketch": "test_LTCstring_display/test_LTCstring_display.ino",
+    "sketch": "LTC/LTC.ino",
     "board": "arduino:avr:uno",
     "port": "/dev/tty.usbmodem11201"
 }
