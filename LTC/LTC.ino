@@ -38,18 +38,10 @@ byte m;
 byte s;
 byte f;
 
-// int time_minutes = 10;
-// int time_hours = 10;
-// int time_seconds = 45;
+// 10 bytes * 8 bits = 80 bits = SMPTE/LTC frame length
+typedef byte LTCFrame[10];
 
-// int speed = 0; // current speed
-// char speed_string[10]; // speed number value converted to c-style string (array of characters)
-// int speed_string_length; // length of the speed_string
-// int speed_string_start_pos; // start x position for the big numbers - calculated based on the number of digits
-
-typedef byte LTCFrame[10]; // 10 bytes * 8 bits = 80 bits = LTC word length
-
-// store 2 frame
+// store 2 frame -- TODO: WHY?
 volatile LTCFrame frames[2] = {
     { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF },
     { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF }
@@ -58,13 +50,15 @@ volatile LTCFrame frames[2] = {
 volatile byte currentFrameIndex; // current frame written by ISR ???
 volatile boolean frameAvailable; // indicates received last bit of an LTC frame
 
-// the LTC spec's Sync word, fixed bit pattern 0011 1111 1111 1101 
+// the LTC spec's sync word, fixed bit pattern 0011 1111 1111 1101 
 const unsigned short syncPattern = 0xBFFC;
-// read from incoming LTC; when matches syncPattern, indicates end of a frame (frameAvailable = true)
+// read from incoming LTC 
+// when matches syncPattern, indicates end of a frame (frameAvailable = true)
 volatile unsigned short syncValue;
 
 volatile char state = NOSYNC;
 
+// running counter of valid frames decoded
 volatile unsigned long validFrameCount;
 volatile unsigned short validBitCount;
 volatile byte frameBitCount;
@@ -139,7 +133,7 @@ struct LTCGenerator {
             if (value)
                 PORTB ^= (1 << 5);
 
-            bitIndex++;
+            bitIndex ++;
             if (bitIndex >= 80) {
                 // reset read position
                 bitIndex = 0;
@@ -159,19 +153,19 @@ struct LTCGenerator {
         if (generateNewFrame) {
             generateNewFrame = false;
 
-            frame++;
+            frame ++;
             if (frame > 30) {
-                seconds++;
+                seconds ++;
                 frame = 0;
             }
 
             if (seconds > 60) {
-                minutes++;
+                minutes ++;
                 seconds = 0;
             }
 
             if (minutes > 60) {
-                hours++;
+                hours ++;
                 minutes = 0;
             }
 
@@ -206,12 +200,13 @@ void setup()
     digitalWrite(LOCK_LED, LOW);
 
     while (!Serial) {
-        ; // wait for serial port to connect. Needed for native USB port only
+        // wait for serial port to connect. Needed for native USB port only
     }
     Serial.println("Ready!");
 
+    // wait for the LED display connection to initialize
     while (LED.begin(LED.e8Bit) != 0) {
-        Serial.println("Failed to initialize the chip , please confirm the chip connection!");
+        Serial.println("Failed to initialize the chip, please confirm the chip connection!");
         delay(1000);
     }
 
@@ -226,26 +221,6 @@ void setup()
 
 void loop()
 {
-    // TODO: what are the next two blocks doing?
-    // // increment the time
-    // time_seconds++;
-    // if (time_seconds >= 60) {
-    //   time_seconds = 0;
-    //   time_minutes++;
-    //   if (time_minutes >= 60) {
-    //     time_minutes = 0;
-    //     time_hours++;
-    //     if (time_hours >= 12) {
-    //       time_hours = 0;
-    //     }
-    //   }
-    // }
-
-    // speed = time_seconds; // read potentiometer value and map it between 0-140 (mph)
-    // itoa (speed, speed_string, 10); // convert speed integer to c-style string speed_string, decimal format
-    // speed_string_length = strlen(speed_string); // get speed_string length
-    // speed_string_start_pos = 99 - speed_string_length * 8; // start x position of the big numbers
-
     // status led
     digitalWrite(SIGNAL_LED, validBitCount > 80 ? HIGH : LOW); // valid after 1 frame
     digitalWrite(LOCK_LED, state == SYNCED ? HIGH : LOW);
@@ -271,25 +246,12 @@ void loop()
     s = (fptr[3] & 0x07) * 10 + (fptr[2] & 0x0F);
     f = (fptr[1] & 0x03) * 10 + (fptr[0] & 0x0F);
 
-    /*
+    /* TODO: figure out user bits
     byte u4 = (fptr[15] & 0x03) * 10 + (fptr[14] & 0x0F);
     byte u3 = (fptr[13] & 0x03) * 10 + (fptr[12] & 0x0F);
     byte u2 = (fptr[11] & 0x03) * 10 + (fptr[10] & 0x0F);
     byte u1 = (fptr[9] & 0x03) * 10 + (fptr[8] & 0x0F);
     */
-
-    // int hours = h;
-    // char timecode_hours[10];
-    // itoa (hours, timecode_hours, 10);
-    // int minutes = m;
-    // char timecode_minutes[10];
-    // itoa (minutes, timecode_minutes, 10);
-    // int seconds = s;
-    // char timecode_seconds[10];
-    // itoa (seconds, timecode_seconds, 10);
-    // int frames = f;
-    // char timecode_frames[10];
-    // itoa (frames, timecode_frames, 10);
 
     // print to segmented LED display + serial monitor
     update(LTC_string);
@@ -387,7 +349,7 @@ ISR(TIMER1_CAPT_vect)
             f[idx] &= ~(1 << bIdx);
         */
 
-        frameBitCount++;
+        frameBitCount ++;
         return;
     }
 }
