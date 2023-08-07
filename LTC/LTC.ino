@@ -249,7 +249,7 @@ void loop()
     if (!frameAvailable)
         return;
 
-    // frameAvailable is true
+    // reached end of an LTC frame (frameAvailable true), so there's new data to print
     fptr = frames[1 - currentFrameIndex]; // apparently this error can be ignored (?): a value of type "volatile byte *" cannot be assigned to an entity of type "byte *"C/C++(513)
     Serial.print("Frame: ");
     Serial.print(validFrameCount - 1);
@@ -352,14 +352,14 @@ ISR(TIMER1_CAPT_vect)
         }
 
         if (syncValue == syncPattern) {
-            // send the time code
+            // this is the last bit of a frame, so... 
             frameAvailable = true;
 
-            // reset bit counter
+            // reset bit counter and increment total frame count
             frameBitCount = 0;
-
-            validFrameCount++;
-            currentFrameIndex = 1 - currentFrameIndex;
+            validFrameCount ++;
+            
+            currentFrameIndex = 1 - currentFrameIndex; // ???
             return;
         }
 
@@ -384,18 +384,15 @@ ISR(TIMER1_CAPT_vect)
 
 ISR(TIMER1_OVF_vect)
 {
-    switch (state) {
-    case GENERATOR:
-        break;
-    default:
-        // if we overflow, we then lost signal
-        syncValue = 0;
-        validBitCount = 0;
-        validFrameCount = 0;
-        frameAvailable = false;
-        state = NOSYNC;
-        break;
-    }
+    if (state == GENERATOR)
+        return;
+
+    // if we overflow, we then lost signal
+    syncValue = 0;
+    validBitCount = 0;
+    validFrameCount = 0;
+    frameAvailable = false;
+    state = NOSYNC;
 }
 
 void startLTCDecoder()
