@@ -11,7 +11,7 @@
 #define BIT_TIME_MAX 1500
 
 void update(char* LTC_string, uint8_t h, uint8_t m, uint8_t s, uint8_t f),
-    print_to_display(char* t);
+    print_to_display(char* LTC_string);
 
 void startLTCDecoder(),
     stopLTCDecoder(),
@@ -227,7 +227,6 @@ void loop()
     // speed_string_start_pos = 99 - speed_string_length * 8; // start x position of the big numbers
 
     // status led
-
     digitalWrite(SIGNAL_LED, validBitCount > 80 ? HIGH : LOW); // valid after 1 frame
     digitalWrite(LOCK_LED, state == SYNCED ? HIGH : LOW);
 
@@ -239,7 +238,8 @@ void loop()
     // state is NOSYNC or SYNCED
     if (!frameAvailable)
         return;
-    
+
+    // frameAvailable is true
     byte* fptr = frames[1 - currentFrameIndex];
     Serial.print("Frame: ");
     Serial.print(validFrameCount - 1);
