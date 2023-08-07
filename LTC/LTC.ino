@@ -1,4 +1,3 @@
-// #include "U8glib.h"
 #include "DFRobot_LedDisplayModule.h"
 
 #define ICP1 8 // ICP1, 8 for atmega368, 4 for atmega32u4
@@ -10,7 +9,7 @@
 #define BIT_TIME_MIN 250
 #define BIT_TIME_MAX 1500
 
-void update(char* LTC_string, uint8_t h, uint8_t m, uint8_t s, uint8_t f),
+void update(char* LTC_string),
     print_to_display(char* LTC_string);
 
 void startLTCDecoder(),
@@ -22,6 +21,12 @@ DFRobot_LedDisplayModule LED(&Wire, 0xE0);
 
 // the timecode to print (string): 8 digits + 3 separators (. or :) + \0
 char LTC_string[12];
+
+// the time values extracted from LTC in the decoder
+byte h;
+byte m;
+byte s;
+byte f;
 
 // int time_minutes = 10;
 // int time_hours = 10;
@@ -59,11 +64,13 @@ volatile unsigned short syncValue;
 volatile byte frameBitCount;
 
 volatile byte oneFlag = 0;
-volatile unsigned int bitTime;
 volatile byte currentBit;
 volatile byte lastBit;
+volatile unsigned int bitTime;
 
 int previousOutputFrameIndex = 0;
+
+byte* fptr;
 
 struct LTCGenerator {
     volatile byte bitIndex;
@@ -240,16 +247,16 @@ void loop()
         return;
 
     // frameAvailable is true
-    byte* fptr = frames[1 - currentFrameIndex];
+    fptr = frames[1 - currentFrameIndex]; // apparently this error can be ignored (?): a value of type "volatile byte *" cannot be assigned to an entity of type "byte *"C/C++(513)
     Serial.print("Frame: ");
     Serial.print(validFrameCount - 1);
 
     Serial.print(" - ");
 
-    byte h = (fptr[7] & 0x03) * 10 + (fptr[6] & 0x0F);
-    byte m = (fptr[5] & 0x07) * 10 + (fptr[4] & 0x0F);
-    byte s = (fptr[3] & 0x07) * 10 + (fptr[2] & 0x0F);
-    byte f = (fptr[1] & 0x03) * 10 + (fptr[0] & 0x0F);
+    h = (fptr[7] & 0x03) * 10 + (fptr[6] & 0x0F);
+    m = (fptr[5] & 0x07) * 10 + (fptr[4] & 0x0F);
+    s = (fptr[3] & 0x07) * 10 + (fptr[2] & 0x0F);
+    f = (fptr[1] & 0x03) * 10 + (fptr[0] & 0x0F);
 
     /*
     byte u4 = (fptr[15] & 0x03) * 10 + (fptr[14] & 0x0F);
@@ -272,7 +279,7 @@ void loop()
     // itoa (frames, timecode_frames, 10);
 
     // print to segmented LED display + serial monitor
-    update(LTC_string, h, m, s, f);
+    update(LTC_string);
     print_to_display(LTC_string);
     Serial.println(LTC_string);
 
@@ -301,9 +308,13 @@ ISR(TIMER1_CAPT_vect)
     }
 
     // increment valid bit counts, without overflow
-    validBitCount = validBitCount < 65535 ? validBitCount + 1 : 0;
+    validBitCount = validBitCount < 65535 
+        ? validBitCount + 1 
+        : 0;
 
-    currentBit = bitTime > BIT_TIME_THRESHOLD ? 0 : 1;
+    currentBit = bitTime > BIT_TIME_THRESHOLD 
+        ? 0 
+        : 1;
 
     // don't count 1 twice!
     if (currentBit == 1 && lastBit == 1) {
@@ -451,7 +462,7 @@ void startLTCGenerator()
                     _ _ . _ _ . _ _ . _ _ \0
   char[12] index:   0 1 2 3 4 5 6 7 8 9 0 1
 */
-void update(char* LTC_string, uint8_t h, uint8_t m, uint8_t s, uint8_t f)
+void update(char* LTC_string)
 {
     sprintf(LTC_string, "%02d.%02d.%02d.%02d", h, m, s, f);
 }
