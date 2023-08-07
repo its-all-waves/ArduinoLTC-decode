@@ -454,3 +454,35 @@ void print_to_display(char* LTC_string)
         &LTC_string[9], &LTC_string[10] // frames, "
     );
 }
+
+/* TODO: USER BITS
+
+    Thirty two bits are assigned as eight groups of four USER BITS
+    each of the 8 UB characters can be a single digit
+        or a letter (A - F (65-70 ASCII) on Sound Devices 664)
+
+    32 bits = 4 bytes
+    1 byte = max value 255
+
+    each UB character gets a half a byte?
+    
+    * * * TODO: MSB or LSB? * * * 
+    spec says LSB, but everything else is MSB... (confirm the latter)
+
+    ASSUMPTION: since a full byte can count to 15, and we only need 0-9 for
+    single digits, the values 10-15 must be...
+        10=A, 11=B, 12=C, 13=D, 14=E, 15=F
+
+    e.g. how do I say the date and reel?
+        2023 Aug 7
+        sound reel #3F
+        
+    GOAL USER BITS (UB)   23 : 08 : 07 : 3F -->
+
+          2        3 :      0        8 :      0        7 :      3        F  <- UB goal
+    0 0 1 0  0 0 1 1  0 0 0 0  1 0 0 0  0 0 0 0  0 1 1 1  0 0 1 1  0 1 1 0  <- LTC stream
+    - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -
+    8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  <- place - what should these values be?
+                   1                 2                 3                 4  <- UB byte number          
+          1        2        3        4        5        6        7        8  <- UB character
+ */
