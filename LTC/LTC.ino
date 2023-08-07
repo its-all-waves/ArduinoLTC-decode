@@ -70,7 +70,10 @@ volatile unsigned int bitTime;
 
 int previousOutputFrameIndex = 0;
 
-byte* fptr;
+// used to update ltc data in the ISR for capture (decode mode)
+byte idx, bIdx;
+
+byte* fptr; // used to update time values in main loop (decode mode)
 
 struct LTCGenerator {
     volatile byte bitIndex;
@@ -308,12 +311,12 @@ ISR(TIMER1_CAPT_vect)
     }
 
     // increment valid bit counts, without overflow
-    validBitCount = validBitCount < 65535 
-        ? validBitCount + 1 
+    validBitCount = validBitCount < 65535
+        ? validBitCount + 1
         : 0;
 
-    currentBit = bitTime > BIT_TIME_THRESHOLD 
-        ? 0 
+    currentBit = bitTime > BIT_TIME_THRESHOLD
+        ? 0
         : 1;
 
     // don't count 1 twice!
@@ -333,6 +336,7 @@ ISR(TIMER1_CAPT_vect)
         if (syncValue == syncPattern) {
             state = SYNCED;
             frameBitCount = 0;
+            return;
         }
         break;
     case SYNCED:
@@ -344,7 +348,10 @@ ISR(TIMER1_CAPT_vect)
             validFrameCount = 0;
             frameAvailable = false;
             state = NOSYNC;
-        } else if (syncValue == syncPattern) {
+            return;
+        }
+
+        if (syncValue == syncPattern) {
             // send the time code
             frameAvailable = true;
 
@@ -353,24 +360,25 @@ ISR(TIMER1_CAPT_vect)
 
             validFrameCount++;
             currentFrameIndex = 1 - currentFrameIndex;
-        } else {
-            // update ltc data
-            byte idx = frameBitCount / 8;
-            byte bIdx = frameBitCount & 0x07;
-            byte* f = frames[currentFrameIndex];
-
-            f[idx] = (f[idx] & ~(1 << bIdx)) | (currentBit << bIdx);
-
-            /*
-            if(currentBit)
-              f[idx] |= 1 << bIdx;
-             else
-              f[idx] &= ~(1 << bIdx);
-            */
-
-            frameBitCount++;
+            return;
         }
-        break;
+
+        // update ltc data
+        idx = frameBitCount / 8;
+        bIdx = frameBitCount & 0x07;
+        byte* f = frames[currentFrameIndex]; // doesn't compile if global
+
+        f[idx] = (f[idx] & ~(1 << bIdx)) | (currentBit << bIdx);
+
+        /*
+        if(currentBit)
+            f[idx] |= 1 << bIdx;
+            else
+            f[idx] &= ~(1 << bIdx);
+        */
+
+        frameBitCount++;
+        return;
     }
 }
 
