@@ -9,12 +9,22 @@
 #define BIT_TIME_MIN 250
 #define BIT_TIME_MAX 1500
 
+// states of the machine
+#define NOSYNC 0
+#define SYNCED 1
+#define GENERATOR 2
+
+// prototypes
 void update(char* LTC_string),
     print_to_display(char* LTC_string);
 
 void startLTCDecoder(),
     stopLTCDecoder(),
     startLTCGenerator();
+
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// GLOBAL VARIABLES
 
 // instantiate an LED object with the IIC address of the display
 DFRobot_LedDisplayModule LED(&Wire, 0xE0);
@@ -37,7 +47,7 @@ byte f;
 // int speed_string_length; // length of the speed_string
 // int speed_string_start_pos; // start x position for the big numbers - calculated based on the number of digits
 
-typedef byte LTCFrame[10];
+typedef byte LTCFrame[10]; // 10 bytes * 8 bits = 80 bits = LTC word length
 
 // store 2 frame
 volatile LTCFrame frames[2] = {
@@ -45,19 +55,18 @@ volatile LTCFrame frames[2] = {
     { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF }
 };
 
-volatile byte currentFrameIndex; // current frame written by ISR
-volatile boolean frameAvailable;
-volatile unsigned long validFrameCount;
-volatile unsigned short validBitCount;
+volatile byte currentFrameIndex; // current frame written by ISR ???
+volatile boolean frameAvailable; // indicates received last bit of an LTC frame
 
-#define NOSYNC 0
-#define SYNCED 1
-#define GENERATOR 2
-volatile char state = 0;
-
-static unsigned short syncPattern = 0xBFFC; // (B00111111 * 256) + B11111101;
+// the LTC spec's Sync word, fixed bit pattern 0011 1111 1111 1101 
+const unsigned short syncPattern = 0xBFFC;
+// read from incoming LTC; when matches syncPattern, indicates end of a frame (frameAvailable = true)
 volatile unsigned short syncValue;
 
+volatile char state = NOSYNC;
+
+volatile unsigned long validFrameCount;
+volatile unsigned short validBitCount;
 volatile byte frameBitCount;
 
 volatile byte oneFlag = 0;
@@ -179,6 +188,10 @@ struct LTCGenerator {
     }
 
 } generator;
+
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// MAIN ARDUINO FUNCTIONS
 
 void setup()
 {
