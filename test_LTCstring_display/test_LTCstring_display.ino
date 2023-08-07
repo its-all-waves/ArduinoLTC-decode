@@ -2,7 +2,6 @@
 
 #define FRAME_RATE 24
 
-// prototypes
 #define increment_frames() f++
 void count_timecode(uint8_t& h, uint8_t& m, uint8_t& s, uint8_t& f),
     update(char* LTC_string),
