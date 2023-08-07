@@ -19,7 +19,7 @@ void startLTCDecoder(),
 // instantiate an LED object with the IIC address of the display
 DFRobot_LedDisplayModule LED(&Wire, 0xE0);
 
-// the timecode to print (string): 8 digits + 3 separators (. or :) + \0
+// the timecode string to print: 8 digits + 3 separators (.) + \0
 char LTC_string[12];
 
 // the time values extracted from LTC in the decoder
@@ -31,8 +31,6 @@ byte f;
 // int time_minutes = 10;
 // int time_hours = 10;
 // int time_seconds = 45;
-
-// int string_width = u8g.getStrWidth("TimeCode");
 
 // int speed = 0; // current speed
 // char speed_string[10]; // speed number value converted to c-style string (array of characters)
@@ -50,7 +48,6 @@ volatile LTCFrame frames[2] = {
 volatile byte currentFrameIndex; // current frame written by ISR
 volatile boolean frameAvailable;
 volatile unsigned long validFrameCount;
-
 volatile unsigned short validBitCount;
 
 #define NOSYNC 0
@@ -358,7 +355,7 @@ ISR(TIMER1_CAPT_vect)
             // reset bit counter and increment total frame count
             frameBitCount = 0;
             validFrameCount ++;
-            
+
             currentFrameIndex = 1 - currentFrameIndex; // ???
             return;
         }
@@ -472,6 +469,7 @@ void update(char* LTC_string)
     sprintf(LTC_string, "%02d.%02d.%02d.%02d", h, m, s, f);
 }
 
+/* print the LTC string to the 8 digit, 7 segment, LED display */
 void print_to_display(char* LTC_string)
 {
     LED.print(
