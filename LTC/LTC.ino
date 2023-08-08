@@ -8,7 +8,7 @@
 /* TODO: how are these BIT_TIME_X constants used?
     seems to be an error check
         if the width in microsec of a decoded bit is too short or long to be
-            considered an LTC bit 
+            considered an LTC bit ??? 
     if this was the case, wouldn't we have to measure the time between
         hi/lo transitions somewhere?
             is that happening somewhere?
@@ -22,11 +22,14 @@
 #define SYNCED 1
 #define GENERATOR 2
 
-// prototypes
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// PROTOTYPES 
+
 void decode_and_update_time_vals(),
-    update_TC_string(char* displayed_string),
-    decode_UB_and_update(char* UB_string),
-    print_to_segment_display(char* TC_string);
+    update_TC_string(),
+    decode_UB_and_update_vals(),
+    print_to_segment_display(char* LTC_string);
 
 void startLTCDecoder(),
     stopLTCDecoder(),
@@ -40,6 +43,7 @@ void startLTCDecoder(),
 DFRobot_LedDisplayModule LED(&Wire, 0xE0);
 
 // the timecode string to print: 8 digits + 3 separators (.) + \0
+// this format (with periods) is required by the DFRobot segment display lib
 char TC_string[12] = {
     '0', '0', '.', '0', '0', '.', '0', '0', '.', '0', '0', '\0'
 };
@@ -269,13 +273,16 @@ void loop()
     update_TC_string();
 
     // update the user bits string (but don't display it until appropriate)
-    decode_UB_and_update(UB_string);
+    decode_UB_and_update_vals();
+    update_UB_string();
 
-    // print to segmented LED display + serial monitor
-    // print_to_segment_display(TC_string);
-    // Serial.println(TC_string);
-    print_to_segment_display(UB_string);
-    Serial.println(UB_string);
+    // print timecode to segmented LED display + serial monitor
+    print_to_segment_display(TC_string);
+    Serial.println(TC_string);
+
+    // print userbits to display + serial
+    // print_to_segment_display(UB_string);
+    // Serial.println(UB_string);
 
     // reset
     frameAvailable = false;
@@ -307,6 +314,13 @@ ISR(TIMER1_CAPT_vect)
         ? validBitCount + 1
         : 0;
 
+    /* TODO: what are bitTime, BIT_TIME_THRESHOLD, and what's happening here?
+    LTC 1 bit has 2 transitions per bit period where a 0 bit has 1 transition,
+    so it would make sense that the bit we're reading now should be called a 0
+    if there was a larger time between transitions hi/lo/hi
+    
+    is that what this is getting at? 
+    */
     currentBit = bitTime > BIT_TIME_THRESHOLD
         ? 0
         : 1;
@@ -462,7 +476,7 @@ void startLTCGenerator()
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HELPERS
 
-/* recreate the timecode string to print
+/* update the timecode string before printing
                     _ _ . _ _ . _ _ . _ _ \0
   char[12] index:   0 1 2 3 4 5 6 7 8 9 0 1
 */
@@ -475,6 +489,7 @@ void update_TC_string()
     );
 }
 
+/* update the user bits string before printing */
 void update_UB_string() 
 {
     sprintf(
@@ -484,8 +499,8 @@ void update_UB_string()
     );
 }
 
-/* decode time vals from the latest frame's LTC into decimal integers */
-void decode_and_update_time_vals() 
+/* from the latest frame of LTC, decode time values into decimal integers */
+void decode_and_update_time_vals()
 {
     // 10s place + 1s place
     h = (fptr[7] & 0x03) * 10 + (fptr[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3) 
@@ -494,74 +509,64 @@ void decode_and_update_time_vals()
     f = (fptr[1] & 0x03) * 10 + (fptr[0] & 0x0F);
 }
 
-/* decode userbit hex vals from the bytes of an LTC frame and use them to update
-the user bits string to be displayed */
-void decode_UB_and_update(char* UB_string) {
-    // lookup table for decoding user bits from binary
-    #define HEX_CHARS "0123456789ABCDEF"
-
+/* from the 8 data bytes of an LTC frame (remaining 2 for sync word), decode
+user bit hex vals and store them in their respective globals */
+void decode_UB_and_update_vals() 
+{
     /* rshift 4 bc, despite picking out the large half of LTC byte, we're
-    using 1,2,4,8 places only, as that's all that's needed to make a hex
-    (right shift is always towards LSB) 
-    & 0xF0 -> access largest 4 bits of this LTC byte by masking off the
-    smallest 4 bits */
-    ub7 = (fptr[0] & 0xF0) >> 4; // 1 digit bt 0 and F
-    ub6 = (fptr[1] & 0xF0) >> 4; // 1 digit bt 0 and F
-    ub5 = (fptr[2] & 0xF0) >> 4; // 1 digit bt 0 and F
-    ub4 = (fptr[3] & 0xF0) >> 4; // 1 digit bt 0 and F
-    ub3 = (fptr[4] & 0xF0) >> 4; // 1 digit bt 0 and F
-    ub2 = (fptr[5] & 0xF0) >> 4; // 1 digit bt 0 and F
-    ub1 = (fptr[6] & 0xF0) >> 4; // 1 digit bt 0 and F
-    ub0 = (fptr[7] & 0xF0) >> 4; // 1 digit bt 0 and F
-
-    update_UB_string();
+    using 1,2,4,8 places only, as that's all that's needed to make a hex char
+    - (right shift is always towards LSB) 
+    - each ubX is 1 digit bt 0 and F
+    - ...& 0xF0 -> access largest 4 bits of this LTC byte by masking off the
+        smallest 4 bits */ 
+    ub7 = (fptr[0] & 0xF0) >> 4;
+    ub6 = (fptr[1] & 0xF0) >> 4;
+    ub5 = (fptr[2] & 0xF0) >> 4;
+    ub4 = (fptr[3] & 0xF0) >> 4;
+    ub3 = (fptr[4] & 0xF0) >> 4;
+    ub2 = (fptr[5] & 0xF0) >> 4;
+    ub1 = (fptr[6] & 0xF0) >> 4;
+    ub0 = (fptr[7] & 0xF0) >> 4;
 }
 
 /* print the LTC string to the 8 digit, 7 segment, LED display */
-void print_to_segment_display(char* TC_string)
+void print_to_segment_display(char* LTC_string)
 {
     LED.print(
-        &TC_string[0], &TC_string[1], // hours, ones place + '.'
-        &TC_string[3], &TC_string[4], // minutes, "
-        &TC_string[6], &TC_string[7], // seconds, "
-        &TC_string[9], &TC_string[10] // frames, "
+        &LTC_string[0], &LTC_string[1], // hours, ones place + '.'
+        &LTC_string[3], &LTC_string[4], // minutes, "
+        &LTC_string[6], &LTC_string[7], // seconds, "
+        &LTC_string[9], &LTC_string[10] // frames, "
     );
 }
 
 
-/* TODO: USER BITS
+/* USER BITS BREAKDOWN
 
-    Thirty two bits are assigned as eight groups of four USER BITS
-    each of the 8 UB characters can be a single digit
-        or a letter (A - F (65-70 ASCII) on Sound Devices 664)
+    32 bits are assigned as eight groups/fields/chars of four [USER] BITS (UB)     
 
     32 bits = 4 bytes
-    1 byte = max value 255
+    4 bytes / 8 fields = 1/2 byte per field...
+    ... = 1x 4-bit binary number per field...
+    
+    4 bits allows for a single hexadecimal character per field / UB char (0-F),
+    which is the standard format of UB in American film production
 
-    * * * TODO: MSB or LSB? * * * 
-    spec says LSB, but everything else is MSB... (confirm the latter)
-
-    ASSUMPTION: since a full byte can count to 15, and we only need 0-9 for
-    single digits, the values 10-15 must be...
-        10=A, 11=B, 12=C, 13=D, 14=E, 15=F
-
-    e.g. how do I say the date and reel?
+    e.g. encode the date and reel (to understand decoding)
         2023 Aug 7
         sound reel #3F
         
     GOAL USER BITS (UB)   23 : 08 : 07 : 3F -->
 
-          2        3 :      0        8 :      0        7 :      3        F  <- UB goal
-    0 0 1 0  0 0 1 1  0 0 0 0  1 0 0 0  0 0 0 0  0 1 1 1  0 0 1 1  0 1 1 0  <- LTC stream
+          2        3 :      0        8 :      0        7 :      3        F  <- UB goal / hex value
+    0 0 1 0  0 0 1 1  0 0 0 0  1 0 0 0  0 0 0 0  0 1 1 1  0 0 1 1  0 1 1 0  <- encoded LTC stream
     - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -
-    8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  <- place - what should these values be?
-                   1                 2                 3                 4  <- UB byte number          
-          1        2        3        4        5        6        7        8  <- UB character
+    8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  <- place - (may be backwards, too tired to tell atm) 
+                   3                 2                 1                 0  <- LTC byte number (UB lives in largest half of the byte) 
+          7        6        5        4        3        2        1        0  <- UB field/character (offset by 1 from spec, so we can count from 0)
 
 
-    FIGURE IT OUT
-
-    1) where are the user bit fields?
+    where are the user bit fields within the LTC bit array / schema?
 
         field/char #     large 1/2 of    LTC bits
         ++++++++++++     ++++++++++++    ++++++++
@@ -574,26 +579,15 @@ void print_to_segment_display(char* TC_string)
                    7     byte 7          52-55
                    8     byte 8          60-63
 
-    2) on which end of the UB string is field/char 1?
+    how do we access the bits in the 2nd half of the data bytes 1-8
+        (9-10 is the sync word)
 
-        ? ? ?
+        mask off the discarded bits (holding timecode)
+            ... & 0xF0      
+            reveals position of any binary 1s in the larger half of the LTC byte
 
-    3) how do we access the bits in the 2nd half of the data bytes 1-8
-       (9-10 is the sync word)
-
-
-    4) how do we 
-
-
-
-    THE INTENTION OF THE USERBITS DECODING SECTION - IS IT CORRECT?
-
-    looks at the first 8 bytes of a 10-byte schema and extracts the last 4
-    bits of each byte. Specifically, it is using a right shift operation (>> 4)
-    to move the last 4 bits of each byte into the first 4 positions, and then
-    using a bitwise AND operation (& 0x0F) to mask out all but the last 4 bits.
-    The resulting value is then used as an index into the string
-    "0123456789ABCDEF" to convert the binary value into a hexadecimal character.
-    This process is repeated for each of the first 8 bytes in the schema, and
-    the resulting hexadecimal characters are stored in the userBitsString array.
+        right shift >> 4 places bc we're taking the larger half of a byte
+            this would normally be the places 16, 32, 64, 128, but the LTC spec
+            uses these 4 bits as places 1, 2, 4, 8 as that's all that's required
+            to represent a hexadecimal character
 */
