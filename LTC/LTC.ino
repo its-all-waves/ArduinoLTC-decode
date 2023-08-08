@@ -562,7 +562,7 @@ void print_to_segment_display(char* LTC_string)
     0 0 1 0  0 0 1 1  0 0 0 0  1 0 0 0  0 0 0 0  0 1 1 1  0 0 1 1  0 1 1 0  <- encoded LTC stream
     - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -
     8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  <- place - (may be backwards, too tired to tell atm) 
-                   3                 2                 1                 0  <- LTC byte number (UB lives in largest half of the byte) 
+          7        6        5        4        3        2        1        0  <- LTC byte number (UB lives in largest half of the byte) 
           7        6        5        4        3        2        1        0  <- UB field/character (offset by 1 from spec, so we can count from 0)
 
 
