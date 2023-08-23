@@ -1,4 +1,5 @@
 #include "DFRobot_LedDisplayModule.h"
+#include <string.h>
 
 #define ICP1 8 // ICP1, 8 for atmega368, 4 for atmega32u4
 #define LTC_OUT 9
@@ -273,14 +274,6 @@ void setup()
 /* check for a new frame to print, print it (decoder) */
 void loop()
 {
-    // hall effect sensor / clap
-    // clapper_is_open + just_clapped are set in the interrupt routine
-    if (just_clapped)
-        handle_clap();
-
-    if (clapper_is_open)
-        handle_open_clapper();
-
     // indicate valid LTC signal -> set signal LED hi once we've counted 80 bits
     // (a complete LTC frame)
     digitalWrite(SIGNAL_LED, validBitCount > 80 ? HIGH : LOW);
@@ -292,8 +285,14 @@ void loop()
         return;
     }
 
-    // mode of operation is DECODER
-    // state is NOSYNC or SYNCED
+    // mode of operation is DECODER, state is NOSYNC or SYNCED
+
+    // clapper handling (via hall effect sensor)
+    if (just_clapped)
+        handle_clap();
+
+    if (clapper_is_open)
+        handle_open_clapper();
 
     // only proceed to update time vars if we've past the end of an LTC frame
     if (!frameAvailable)
@@ -301,9 +300,9 @@ void loop()
 
     // reached end of a frame, so there's new data to print
     fptr = frames[1 - currentFrameIndex]; // apparently this error can be ignored (?): a value of type "volatile byte *" cannot be assigned to an entity of type "byte *"C/C++(513)
+    
     Serial.print("Frame: ");
     Serial.print(validFrameCount - 1);
-
     Serial.print(" - ");
 
     // decode time values and update the timecode string to be displayed
