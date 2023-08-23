@@ -706,3 +706,16 @@ void setup_hall_sensor_for_pin_change_interrupt()
             uses these 4 bits as places 1, 2, 4, 8 as that's all that's required
             to represent a hexadecimal character
 */
+
+/* TODO:
+- debounce hall sensor
+- implement:
+    // blink the center-most period once per second
+    void indicate_sync()
+
+    // flash the given value on the display
+    void flash_display(char *str_8_dig)
+
+    // determines the framerate and informs the user via the segmented display
+    void report_framerate()
+*/
