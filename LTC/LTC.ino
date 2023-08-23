@@ -18,11 +18,6 @@
 #define BIT_TIME_MIN 250
 #define BIT_TIME_MAX 1500
 
-// states of the machine
-#define NOSYNC 0
-#define SYNCED 1
-#define GENERATOR 2
-
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // PROTOTYPES
 
@@ -86,6 +81,10 @@ const unsigned short syncPattern = 0xBFFC;
 // when matches syncPattern, indicates end of a frame (frameAvailable = true)
 volatile unsigned short syncValue;
 
+// states of the machine
+#define NOSYNC 0
+#define SYNCED 1
+#define GENERATOR 2
 volatile char state = NOSYNC;
 
 // running counter of valid frames decoded
@@ -300,7 +299,7 @@ void loop()
 
     // reached end of a frame, so there's new data to print
     fptr = frames[1 - currentFrameIndex]; // apparently this error can be ignored (?): a value of type "volatile byte *" cannot be assigned to an entity of type "byte *"C/C++(513)
-    
+
     Serial.print("Frame: ");
     Serial.print(validFrameCount - 1);
     Serial.print(" - ");
