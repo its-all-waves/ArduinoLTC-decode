@@ -246,12 +246,6 @@ void setup()
 
     wait_for_display();
 
-    // wait for the LED display connection to initialize
-    while (LED.begin(LED.e8Bit) != 0) {
-        Serial.println("Failed to initialize the chip, please confirm the chip connection!");
-        delay(1000);
-    }
-
     // enable all 8 digits on the display
     LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
 
@@ -260,7 +254,7 @@ void setup()
     delay(DISPLAY_HOLD_MILLISEC);
 
     // hall sensor HIGH means clapper_is_open
-    clapper_is_open = digitalRead(HALL_SENSOR_PIN) ? true : false;
+    clapper_is_open = digitalRead(HALL_SENSOR_PIN);
     if (!clapper_is_open) {
         LED.displayOff();
     }
@@ -419,9 +413,9 @@ ISR(TIMER1_CAPT_vect)
         f[idx] = (f[idx] & ~(1 << bIdx)) | (currentBit << bIdx);
 
         /*
-        if(currentBit)
+        if (currentBit)
             f[idx] |= 1 << bIdx;
-            else
+        else
             f[idx] &= ~(1 << bIdx);
         */
 
@@ -454,7 +448,12 @@ ISR(PCINT2_vect)
     // (clapper STATE currently CLOSED -- must be closed to open)
     if (!clapper_is_open) {
         Serial.println("OPEN CLAPPER");
-        clapper_is_open = digitalRead(HALL_SENSOR_PIN) ? true : false;
+        clapper_is_open = digitalRead(HALL_SENSOR_PIN);
+        // ensure clapper_is_open is true
+        /* TODO: I had a feeling that I should not arbitrarily set
+        clapper_is_open in this if statement. I felt this var should always
+        track the sensor reading, and I should assert that it is the expected
+        value. Not sure if this is needed, but it seems to not hurt. */
         if (clapper_is_open != true) {
             Serial.println("ERROR 1");
             LED.print("Err 1   ");
@@ -465,7 +464,7 @@ ISR(PCINT2_vect)
     // (clapper STATE currently OPEN -- must be open to close)
     else {
         Serial.println("CLOSE CLAPPER");
-        clapper_is_open = digitalRead(HALL_SENSOR_PIN) ? true : false;
+        clapper_is_open = digitalRead(HALL_SENSOR_PIN);
         if (clapper_is_open != false) {
             Serial.println("ERROR 2");
             LED.print("Err 2   ");
@@ -706,6 +705,27 @@ void setup_hall_sensor_for_pin_change_interrupt()
             uses these 4 bits as places 1, 2, 4, 8 as that's all that's required
             to represent a hexadecimal character
 */
+
+/* 
+    HOW ARE CHARACTERS PRINTED ON THE SEGMENTED DISPLAY?
+    A  ->  0x77  ->  0111 0111
+    B  ->  0x7C  ->  0111 1100
+    C  ->  0x39  ->  0011 1001
+    D  ->  0x5E  ->  0101 1110
+    E  ->  0x79  ->  0111 1001
+    F  ->  0x71  ->  0111 0001
+
+            LED Segment Display                 LETTER A (LSB)
+                     A                             bit 0
+                    ----                           #### 
+               F  -      -  B            bit 5   #      #  bit 1
+                  -      -                       #      #
+             G -->  ----                           ####   <-- bit 6
+                  -      -               bit 4   #      #  bit 2
+               E  -      -  C                    #      #
+                    ----       #                   ----       -
+                      D        DP                  bit 3      bit 7
+ */
 
 /* TODO:
 - debounce hall sensor
