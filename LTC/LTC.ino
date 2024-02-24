@@ -743,4 +743,7 @@ void setup_hall_sensor_for_pin_change_interrupt()
 
     // determines the framerate and informs the user via the segmented display
     void report_framerate()
+- bugfixes:
+    - display never re-initializes if its input stream is interrupted
+        - how would a display input interruption be detected?
 */
