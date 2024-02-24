@@ -233,6 +233,9 @@ char UB_on_clap[12] = {
 void setup()
 {
     Serial.begin(115200);
+
+    Serial.println("PROGRAM RUNNING"); // DEBUG
+
     pinMode(ICP1, INPUT); // ICP pin (digital pin 8 on arduino) as input
     pinMode(LTC_OUT, OUTPUT);
 
@@ -706,7 +709,7 @@ void setup_hall_sensor_for_pin_change_interrupt()
             to represent a hexadecimal character
 */
 
-/* 
+/*
     HOW ARE CHARACTERS PRINTED ON THE SEGMENTED DISPLAY?
     A  ->  0x77  ->  0111 0111
     B  ->  0x7C  ->  0111 1100
@@ -717,7 +720,7 @@ void setup_hall_sensor_for_pin_change_interrupt()
 
             LED Segment Display                 LETTER A (LSB)
                      A                             bit 0
-                    ----                           #### 
+                    ----                           ####
                F  -      -  B            bit 5   #      #  bit 1
                   -      -                       #      #
              G -->  ----                           ####   <-- bit 6
@@ -729,8 +732,10 @@ void setup_hall_sensor_for_pin_change_interrupt()
 
 /* TODO:
 - debounce hall sensor
+- redo the state machine
 - implement:
-    // blink the center-most period once per second
+    // blink the center-most period once per second,
+    // blink faster if no sync
     void indicate_sync()
 
     // flash the given value on the display
