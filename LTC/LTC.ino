@@ -18,6 +18,7 @@
 #define BIT_TIME_MIN 250
 #define BIT_TIME_MAX 1500
 
+#define FRAME_RATE 24 // mock for DEBUG -> TODO: detect this
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // PROTOTYPES
 
@@ -29,6 +30,7 @@ void decode_and_update_time_vals(),
     // segmented display
     wait_for_display(),
     print_to_segment_display(char* SMPTE_string),
+    flash_sync_indicator(),
 
     // main modes of the machine
     startLTCDecoder(),
@@ -57,8 +59,20 @@ char UB_string[12] = {
     '0', '0', '.', '0', '0', '.', '0', '0', '.', '0', '0', '\0'
 };
 
+char sync_indicator_str[12] = {
+    82, 82, 82, 82, 82, '.', 82, 82, 82, 82, 82, '\0'
+};
+
+// char* sync_indicator_str = "     .     ";
+
+// char sync_indicator_str[8] = { 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80
+// };
+
+// char sync_indicator_str[2] = { '.', '\0' };
+
 // the time values (in decimal) extracted from LTC in the decoder
-uint8_t h, m, s, f;
+uint8_t h,
+    m, s, f;
 
 // user bit fields/chars extracted from LTC in the decoder
 uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
@@ -309,13 +323,22 @@ void loop()
     decode_UB_and_update_vals();
     update_UB_string();
 
-    // print timecode to segmented LED display + serial monitor
-    print_to_segment_display(TC_string);
-    Serial.println(TC_string);
-
-    // print userbits to display + serial
-    // print_to_segment_display(UB_string);
-    // Serial.println(UB_string);
+    // TODO: show "sync valid" indicator when on first frame (flash the 4th dot
+    // on the display)
+    if (f == 0 & !clapper_is_open) {
+        Serial.println("SECOND MARK");
+        // TODO: the following does not work!
+        LED.setDisplayArea(4);
+        LED.displayOn();
+        LED.print(".");
+        LED.displayOff();
+        LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
+    } else {
+        // clapper is open and this is not the first frame of a second
+        // print timecode to segmented LED display + serial monitor
+        print_to_segment_display(TC_string);
+        Serial.println(TC_string);
+    }
 
     // reset
     frameAvailable = false;
@@ -400,6 +423,7 @@ ISR(TIMER1_CAPT_vect)
 
             // ??? TODO: is this a boolean -- only 0 or 1? frames[] holds only 2 LTC frames
             currentFrameIndex = 1 - currentFrameIndex;
+
             return;
         }
 
@@ -547,6 +571,13 @@ void startLTCGenerator()
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HELPERS
+
+void flash_sync_indicator()
+{
+    // show a period on LED display for X ms
+    print_to_segment_display(sync_indicator_str);
+    delay(500);
+}
 
 /* update the timecode string before printing
                     _ _ . _ _ . _ _ . _ _ \0
@@ -717,6 +748,7 @@ void setup_hall_sensor_for_pin_change_interrupt()
     D  ->  0x5E  ->  0101 1110
     E  ->  0x79  ->  0111 1001
     F  ->  0x71  ->  0111 0001
+    .  ->  0x80  ->  1000 0000
 
             LED Segment Display                 LETTER A (LSB)
                      A                             bit 0
