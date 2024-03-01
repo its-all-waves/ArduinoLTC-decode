@@ -1,3 +1,4 @@
+#include "Arduino.h"
 #include "DFRobot_LedDisplayModule.h"
 #include <string.h>
 
@@ -301,23 +302,13 @@ void loop()
     if (just_clapped)
         handle_clap();
 
-    // if (false) {
     if (clapper_is_open) {
         handle_open_clapper();
     } else {
         if (f == 0) {
             // Serial.println("SECOND MARK");
             // TODO: the following does not work!
-            LED.setDisplayArea(4);
-            LED.displayOn();
-            LED.print(".");
-            delay(100);
-            LED.displayOff();
-            LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
-            // LED.displayOn();
-            // print_to_segment_display("00.00.00.00");
-            // delay(100);
-            // LED.displayOff();
+            flash_sync_indicator();
         }
     }
 
@@ -339,23 +330,6 @@ void loop()
     // update the user bits string (but don't display it until appropriate)
     decode_UB_and_update_vals();
     update_UB_string();
-
-    // TODO: show "sync valid" indicator when on first frame (flash the 4th dot
-    // on the display)
-    // if (f == 0 & !clapper_is_open) {
-    //     Serial.println("SECOND MARK");
-    //     // TODO: the following does not work!
-    //     LED.setDisplayArea(4);
-    //     LED.displayOn();
-    //     LED.print(".");
-    //     LED.displayOff();
-    //     LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
-    // } else {
-    //     // clapper is open and this is not the first frame of a second
-    //     // print timecode to segmented LED display + serial monitor
-    //     print_to_segment_display(TC_string);
-    //     Serial.println(TC_string);
-    // }
 
     // reset
     frameAvailable = false;
@@ -494,31 +468,12 @@ ISR(PCINT2_vect)
         Serial.println("OPEN CLAPPER");
         just_clapped = false;
         clapper_is_open = true;
-
-        // clapper_is_open = digitalRead(HALL_SENSOR_PIN);
-        // ensure clapper_is_open is true
-        // /* TODO: I had a feeling that I should not arbitrarily set
-        // clapper_is_open in this if statement. I felt this var should always
-        // track the sensor reading, and I should assert that it is the expected
-        // value. Not sure if this is needed, but it seems to not hurt. */
-        // if (clapper_is_open != true) {
-        //     Serial.println("ERROR 1");
-        //     LED.print("Err 1   ");
-        //     return;
-        // }
     }
     // interrupt was triggered by CLOSING the clapper
     // (clapper STATE currently OPEN -- must be open to close)
     else {
         Serial.println("CLOSE CLAPPER");
         clapper_is_open = false;
-
-        // clapper_is_open = digitalRead(HALL_SENSOR_PIN);
-        // if (clapper_is_open != false) {
-        //     Serial.println("ERROR 2");
-        //     LED.print("Err 2   ");
-        //     return;
-        // }
         just_clapped = true;
     }
 
@@ -594,12 +549,15 @@ void startLTCGenerator()
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HELPERS
 
-// void flash_sync_indicator()
-// {
-//     // show a period on LED display for X ms
-//     print_to_segment_display(sync_indicator_str);
-//     delay(500);
-// }
+void flash_sync_indicator()
+{
+    LED.setDisplayArea(4);
+    LED.displayOn();
+    LED.print(".");
+    delay(1000 / FRAME_RATE);
+    LED.displayOff();
+    LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
+}
 
 /* update the timecode string before printing
                     _ _ . _ _ . _ _ . _ _ \0
@@ -788,10 +746,6 @@ void setup_hall_sensor_for_pin_change_interrupt()
 - debounce hall sensor
 - redo the state machine
 - implement:
-    // blink the center-most period once per second,
-    // blink faster if no sync
-    void indicate_sync()
-
     // flash the given value on the display
     void flash_display(char *str_8_dig)
 
