@@ -229,7 +229,7 @@ struct LTCGenerator {
 
 // hall effect sensor macros and globals
 #define HALL_SENSOR_PIN 2
-#define DISPLAY_HOLD_MILLISEC 3000
+#define DISPLAY_HOLD_MILLISEC 500
 volatile bool just_clapped = false, // true -> display TC_on_clap
     clapper_is_open; // true -> display on
 /* the string that's displayed upon clap - a copy of the SMPTE_string at clap.
@@ -301,8 +301,25 @@ void loop()
     if (just_clapped)
         handle_clap();
 
-    if (clapper_is_open)
+    // if (false) {
+    if (clapper_is_open) {
         handle_open_clapper();
+    } else {
+        if (f == 0) {
+            // Serial.println("SECOND MARK");
+            // TODO: the following does not work!
+            LED.setDisplayArea(4);
+            LED.displayOn();
+            LED.print(".");
+            delay(100);
+            LED.displayOff();
+            LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
+            // LED.displayOn();
+            // print_to_segment_display("00.00.00.00");
+            // delay(100);
+            // LED.displayOff();
+        }
+    }
 
     // only proceed to update time vars if we've past the end of an LTC frame
     if (!frameAvailable)
@@ -325,20 +342,20 @@ void loop()
 
     // TODO: show "sync valid" indicator when on first frame (flash the 4th dot
     // on the display)
-    if (f == 0 & !clapper_is_open) {
-        Serial.println("SECOND MARK");
-        // TODO: the following does not work!
-        LED.setDisplayArea(4);
-        LED.displayOn();
-        LED.print(".");
-        LED.displayOff();
-        LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
-    } else {
-        // clapper is open and this is not the first frame of a second
-        // print timecode to segmented LED display + serial monitor
-        print_to_segment_display(TC_string);
-        Serial.println(TC_string);
-    }
+    // if (f == 0 & !clapper_is_open) {
+    //     Serial.println("SECOND MARK");
+    //     // TODO: the following does not work!
+    //     LED.setDisplayArea(4);
+    //     LED.displayOn();
+    //     LED.print(".");
+    //     LED.displayOff();
+    //     LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
+    // } else {
+    //     // clapper is open and this is not the first frame of a second
+    //     // print timecode to segmented LED display + serial monitor
+    //     print_to_segment_display(TC_string);
+    //     Serial.println(TC_string);
+    // }
 
     // reset
     frameAvailable = false;
@@ -475,28 +492,33 @@ ISR(PCINT2_vect)
     // (clapper STATE currently CLOSED -- must be closed to open)
     if (!clapper_is_open) {
         Serial.println("OPEN CLAPPER");
-        clapper_is_open = digitalRead(HALL_SENSOR_PIN);
+        just_clapped = false;
+        clapper_is_open = true;
+
+        // clapper_is_open = digitalRead(HALL_SENSOR_PIN);
         // ensure clapper_is_open is true
-        /* TODO: I had a feeling that I should not arbitrarily set
-        clapper_is_open in this if statement. I felt this var should always
-        track the sensor reading, and I should assert that it is the expected
-        value. Not sure if this is needed, but it seems to not hurt. */
-        if (clapper_is_open != true) {
-            Serial.println("ERROR 1");
-            LED.print("Err 1   ");
-            return;
-        }
+        // /* TODO: I had a feeling that I should not arbitrarily set
+        // clapper_is_open in this if statement. I felt this var should always
+        // track the sensor reading, and I should assert that it is the expected
+        // value. Not sure if this is needed, but it seems to not hurt. */
+        // if (clapper_is_open != true) {
+        //     Serial.println("ERROR 1");
+        //     LED.print("Err 1   ");
+        //     return;
+        // }
     }
     // interrupt was triggered by CLOSING the clapper
     // (clapper STATE currently OPEN -- must be open to close)
     else {
         Serial.println("CLOSE CLAPPER");
-        clapper_is_open = digitalRead(HALL_SENSOR_PIN);
-        if (clapper_is_open != false) {
-            Serial.println("ERROR 2");
-            LED.print("Err 2   ");
-            return;
-        }
+        clapper_is_open = false;
+
+        // clapper_is_open = digitalRead(HALL_SENSOR_PIN);
+        // if (clapper_is_open != false) {
+        //     Serial.println("ERROR 2");
+        //     LED.print("Err 2   ");
+        //     return;
+        // }
         just_clapped = true;
     }
 
@@ -572,12 +594,12 @@ void startLTCGenerator()
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HELPERS
 
-void flash_sync_indicator()
-{
-    // show a period on LED display for X ms
-    print_to_segment_display(sync_indicator_str);
-    delay(500);
-}
+// void flash_sync_indicator()
+// {
+//     // show a period on LED display for X ms
+//     print_to_segment_display(sync_indicator_str);
+//     delay(500);
+// }
 
 /* update the timecode string before printing
                     _ _ . _ _ . _ _ . _ _ \0
@@ -665,9 +687,9 @@ void freeze_display()
 
 void handle_clap()
 {
+    // LED.displayOff();
     just_clapped = false; // reset for next clap
     freeze_display();
-    LED.displayOff();
 }
 
 void handle_open_clapper()
