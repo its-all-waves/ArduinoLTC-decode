@@ -55,18 +55,10 @@ DFRobot_LedDisplayModule LED(&Wire, 0xE0);
 
 // the timecode string to print: 8 digits + 3 separators (.) + \0
 // this format (with periods) is required by the DFRobot segment display lib
-char TC_string[12] = {
-    '0', '0', '.', '0', '0', '.', '0', '0', '.', '0', '0', '\0'
-};
+char* TC_string = "00.00.00.00";
 
 // the user bits string to print: same format as SMPTE_string
-char UB_string[12] = {
-    '0', '0', '.', '0', '0', '.', '0', '0', '.', '0', '0', '\0'
-};
-
-char sync_indicator_str[12] = {
-    82, 82, 82, 82, 82, '.', 82, 82, 82, 82, 82, '\0'
-};
+char* UB_string = "UB.UB.UB.UB";
 
 // the time values (in decimal) extracted from LTC in the decoder
 uint8_t h, m, s, f;
