@@ -2,6 +2,7 @@
 #include "DFRobot_LedDisplayModule.h"
 #include <string.h>
 
+#define LTC_IN ICP1
 #define ICP1 8 // ICP1, 8 for atmega368, 4 for atmega32u4
 #define LTC_OUT 9
 #define SIGNAL_LED 13
@@ -24,24 +25,24 @@
 // PROTOTYPES
 
 // decoding LTC stream + updating vars
-void decode_and_update_time_vals(),
-    decode_UB_and_update_vals(),
-    update_TC_string(),
+void decode_and_update_time_vals();
+void decode_UB_and_update_vals();
+void update_TC_string();
 
-    // segmented display
-    wait_for_display(),
-    print_to_segment_display(char* SMPTE_string),
-    flash_sync_indicator(),
+// segmented display
+void wait_for_display();
+void print_to_segment_display(char* SMPTE_string);
+void flash_sync_indicator();
 
-    // main modes of the machine
-    startLTCDecoder(),
-    stopLTCDecoder(),
-    startLTCGenerator(),
+// main modes of the machine
+void startLTCDecoder();
+void stopLTCDecoder();
+void startLTCGenerator();
 
-    // hall effect sensor
-    setup_hall_sensor_for_pin_change_interrupt(),
-    freeze_display(),
-    handle_clap();
+// hall effect sensor
+void setup_hall_sensor_for_pin_change_interrupt();
+void freeze_display();
+void handle_clap();
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GLOBAL VARIABLES
@@ -64,21 +65,13 @@ char sync_indicator_str[12] = {
     82, 82, 82, 82, 82, '.', 82, 82, 82, 82, 82, '\0'
 };
 
-// char* sync_indicator_str = "     .     ";
-
-// char sync_indicator_str[8] = { 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80
-// };
-
-// char sync_indicator_str[2] = { '.', '\0' };
-
 // the time values (in decimal) extracted from LTC in the decoder
-uint8_t h,
-    m, s, f;
+uint8_t h, m, s, f;
 
 // user bit fields/chars extracted from LTC in the decoder
 uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
 
-// 10 bytes * 8 bits = 80 bits = SMPTE/LTC frame length
+// 10 bytes = 80 bits = SMPTE/LTC frame length
 typedef byte LTCFrame[10];
 
 // store 2 frames -- TODO: WHY 2? why not initialize to all zeros?
@@ -113,7 +106,7 @@ volatile byte currentBit;
 volatile byte lastBit;
 volatile unsigned int bitTime; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits
 
-// used to update ltc data in the ISR for capture (decode mode)
+// used to update ltc data in the ICP1 interrupt (LTC input) (decode mode)
 byte idx, bIdx;
 
 byte* fptr; // index into this to access the bytes of the current LTC frame (decode mode)
@@ -125,7 +118,7 @@ struct LTCGenerator {
     volatile byte bitToggle;
     volatile LTCFrame outFrames[2];
     volatile byte currentFrameIndex; // current frame read by ISR
-    volatile bool generateNewFrame;
+    volatile boolean generateNewFrame;
 
     int frame;
     int seconds;
@@ -183,7 +176,7 @@ struct LTCGenerator {
                 // reset read position
                 bitIndex = 0;
 
-                // swtich frame
+                // switch frame
                 currentFrameIndex = 1 - currentFrameIndex;
 
                 generateNewFrame = true;
@@ -231,8 +224,8 @@ struct LTCGenerator {
 // hall effect sensor macros and globals
 #define HALL_SENSOR_PIN 2
 #define DISPLAY_HOLD_MILLISEC 500
-volatile bool just_clapped = false, // true -> display TC_on_clap
-    clapper_is_open; // true -> display on
+volatile boolean just_clapped = false; // true -> display TC_on_clap
+volatile boolean clapper_is_open; // true -> display on
 /* the string that's displayed upon clap - a copy of the SMPTE_string at clap.
 also displayed upon boot up to indicate boot status. */
 char TC_on_clap[12] = {
@@ -248,10 +241,9 @@ char UB_on_clap[12] = {
 void setup()
 {
     Serial.begin(115200);
-
     Serial.println("PROGRAM RUNNING"); // DEBUG
 
-    pinMode(ICP1, INPUT); // ICP pin (digital pin 8 on arduino) as input
+    pinMode(LTC_IN, INPUT); // ICP pin (digital pin 8 on arduino) as input
     pinMode(LTC_OUT, OUTPUT);
 
     pinMode(SIGNAL_LED, OUTPUT);
@@ -317,6 +309,7 @@ void loop()
         return;
 
     // reached end of a frame, so there's new data to print
+
     fptr = frames[1 - currentFrameIndex]; // apparently this error can be ignored (?): a value of type "volatile byte *" cannot be assigned to an entity of type "byte *"C/C++(513)
 
     Serial.print("Frame: ");
@@ -341,8 +334,8 @@ void loop()
 /* triggered when a transition (?) is detected at the input capture pin */
 ISR(TIMER1_CAPT_vect)
 {
-    TCCR1B ^= _BV(ICES1); // toggle edge capture
-    bitTime = ICR1; // store counter value at edge
+    TCCR1B ^= _BV(ICES1); // toggle edge capture / ICES1 = input capture edge select / specifies whether this capture should happen with the rising edge (when ICES1 = 1) or the falling edge (when ICES1 = 0).
+    bitTime = ICR1; // store counter value at edge / ICR = input capture register
     TCNT1 = 0; // reset counter
 
     // remove out of range value
@@ -412,7 +405,7 @@ ISR(TIMER1_CAPT_vect)
             frameBitCount = 0;
             validFrameCount++;
 
-            // ??? TODO: is this a boolean -- only 0 or 1? frames[] holds only 2 LTC frames
+            // alternates between 0 and 1: if 1, becomes 0; if 0, becomes 1
             currentFrameIndex = 1 - currentFrameIndex;
 
             return;
@@ -459,8 +452,7 @@ ISR(TIMER1_OVF_vect)
 /* triggered by state change of hall sensor on pin D2 */
 ISR(PCINT2_vect)
 {
-    // disable global interrupts so this interruption isn't interrupted
-    cli();
+    noInterrupts();
 
     // interrupt was triggered by OPENING the clapper
     // (clapper STATE currently CLOSED -- must be closed to open)
@@ -477,8 +469,7 @@ ISR(PCINT2_vect)
         just_clapped = true;
     }
 
-    // re-enable global interrupts
-    sei();
+    interrupts();
 }
 
 void startLTCDecoder()
