@@ -1,0 +1,1 @@
+typedef byte LTCFrame[10];

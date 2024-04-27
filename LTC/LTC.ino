@@ -1,5 +1,8 @@
 #include "Arduino.h"
 #include "DFRobot_LedDisplayModule.h"
+#include "LTCFrame.h"
+#include "LTCGenerator.h"
+
 #include <string.h>
 
 #define LTC_IN ICP1
@@ -72,7 +75,7 @@ uint8_t h, m, s, f;
 uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
 
 // 10 bytes = 80 bits = SMPTE/LTC frame length
-typedef byte LTCFrame[10];
+// typedef byte LTCFrame[10];
 
 // store 2 frames -- TODO: WHY 2? why not initialize to all zeros?
 volatile LTCFrame frames[2] = {
@@ -112,114 +115,6 @@ byte idx, bIdx;
 byte* fptr; // index into this to access the bytes of the current LTC frame (decode mode)
 
 int previousOutputFrameIndex = 0;
-
-struct LTCGenerator {
-    volatile byte bitIndex;
-    volatile byte bitToggle;
-    volatile LTCFrame outFrames[2];
-    volatile byte currentFrameIndex; // current frame read by ISR
-    volatile boolean generateNewFrame;
-
-    int frame;
-    int seconds;
-    int minutes;
-    int hours;
-
-    LTCGenerator()
-    {
-        reset();
-    }
-
-    void reset()
-    {
-        bitIndex = 0;
-        bitToggle = 0;
-        currentFrameIndex = 0;
-
-        // init frame data
-        memset(outFrames[0], 0, 10);
-        outFrames[0][8] = 0xFC;
-        outFrames[0][9] = 0xBF; // sync pattern
-
-        memset(outFrames[1], 0, 10);
-        outFrames[1][8] = 0xFC;
-        outFrames[1][9] = 0xBF; // sync pattern
-
-        generateNewFrame = false;
-
-        frame = 0;
-        seconds = 0;
-        minutes = 0;
-        hours = 0;
-    }
-
-    // send current frame (should be call inside an ISR)
-    void interupt()
-    {
-        // toggle for 0 and 1;
-        if (!bitToggle) {
-            PORTB ^= (1 << 5);
-
-            if (bitIndex == 0)
-                PORTD ^= (1 << 7); // debug, use to trigger the scope
-        } else {
-            byte idx = bitIndex / 8;
-            byte bitIdx = bitIndex & 0x07;
-            byte value = outFrames[currentFrameIndex][idx] & (1 << bitIdx);
-
-            // toggle for 1
-            if (value)
-                PORTB ^= (1 << 5);
-
-            bitIndex++;
-            if (bitIndex >= 80) {
-                // reset read position
-                bitIndex = 0;
-
-                // switch frame
-                currentFrameIndex = 1 - currentFrameIndex;
-
-                generateNewFrame = true;
-            }
-        }
-
-        bitToggle ^= 1; // toggle
-    }
-
-    void update()
-    {
-        if (generateNewFrame) {
-            generateNewFrame = false;
-
-            frame++;
-            if (frame > 30) {
-                seconds++;
-                frame = 0;
-            }
-
-            if (seconds > 60) {
-                minutes++;
-                seconds = 0;
-            }
-
-            if (minutes > 60) {
-                hours++;
-                minutes = 0;
-            }
-
-            // generate frame data
-            outFrames[1 - currentFrameIndex][0] = (frame % 10) & 0xf;
-            outFrames[1 - currentFrameIndex][1] = (frame / 10) & 0x3;
-            outFrames[1 - currentFrameIndex][2] = (seconds % 10) & 0xf;
-            outFrames[1 - currentFrameIndex][3] = (seconds / 10) & 0x7;
-            outFrames[1 - currentFrameIndex][4] = (minutes % 10) & 0xf;
-            outFrames[1 - currentFrameIndex][5] = (minutes / 10) & 0x7;
-            outFrames[1 - currentFrameIndex][6] = (hours % 10) & 0xf;
-            outFrames[1 - currentFrameIndex][7] = (hours / 10) & 0x3;
-        }
-    }
-
-} generator;
 
 // hall effect sensor macros and globals
 #define HALL_SENSOR_PIN 2
@@ -283,10 +178,11 @@ void loop()
     // set sync lock indicator LED hi when synced
     digitalWrite(LOCK_LED, state == SYNCED ? HIGH : LOW);
 
-    if (state == GENERATOR) {
-        generator.update();
-        return;
-    }
+    // // LEAVE ME COMMENTED OUT -- NO GENERATOR YET
+    // if (state == GENERATOR) {
+    //     generator.update();
+    //     return;
+    // }
 
     // mode of operation is DECODER, state is NOSYNC or SYNCED
 
