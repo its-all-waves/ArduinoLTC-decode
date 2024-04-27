@@ -61,13 +61,14 @@ char* TC_string = "00.00.00.00";
 char* UB_string = "UB.UB.UB.UB";
 
 // the time values (in decimal) extracted from LTC in the decoder
-uint8_t h, m, s, f;
+typedef struct DecodedTC {
+    uint8_t h, m, s, f;
+    uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
+};
+DecodedTC decoded;
 
 // user bit fields/chars extracted from LTC in the decoder
-uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
-
-// 10 bytes = 80 bits = SMPTE/LTC frame length
-// typedef byte LTCFrame[10];
+// uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
 
 // store 2 frames -- TODO: WHY 2? why not initialize to all zeros?
 volatile LTCFrame frames[2] = {
@@ -185,7 +186,7 @@ void loop()
     if (clapper_is_open) {
         handle_open_clapper();
     } else {
-        if (f == 0) {
+        if (decoded.f == 0) {
             // Serial.println("SECOND MARK");
             // TODO: the following does not work!
             flash_sync_indicator();
@@ -447,7 +448,7 @@ void update_TC_string()
     sprintf(
         TC_string,
         "%02d.%02d.%02d.%02d",
-        h, m, s, f);
+        decoded.h, decoded.m, decoded.s, decoded.f);
 }
 
 /* update the user bits string before printing */
@@ -456,17 +457,17 @@ void update_UB_string()
     sprintf(
         UB_string,
         "%d%d.%d%d.%d%d.%d%d",
-        ub0, ub1, ub2, ub3, ub4, ub5, ub6, ub7);
+        decoded.ub0, decoded.ub1, decoded.ub2, decoded.ub3, decoded.ub4, decoded.ub5, decoded.ub6, decoded.ub7);
 }
 
 /* from the latest frame of LTC, decode time values into decimal integers */
 void decode_and_update_time_vals()
 {
     // 10s place + 1s place
-    h = (fptr[7] & 0x03) * 10 + (fptr[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3)
-    m = (fptr[5] & 0x07) * 10 + (fptr[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
-    s = (fptr[3] & 0x07) * 10 + (fptr[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
-    f = (fptr[1] & 0x03) * 10 + (fptr[0] & 0x0F);
+    decoded.h = (fptr[7] & 0x03) * 10 + (fptr[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3)
+    decoded.m = (fptr[5] & 0x07) * 10 + (fptr[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
+    decoded.s = (fptr[3] & 0x07) * 10 + (fptr[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
+    decoded.f = (fptr[1] & 0x03) * 10 + (fptr[0] & 0x0F);
 }
 
 /* from the 8 data bytes of an LTC frame (remaining 2 for sync word), decode
@@ -479,14 +480,14 @@ void decode_UB_and_update_vals()
     - each ubX is 1 digit bt 0 and F (aka a hex char)
     - ...& 0xF0 -> access largest 4 bits of this LTC byte by masking off the
         smallest 4 bits */
-    ub7 = (fptr[0] & 0xF0) >> 4;
-    ub6 = (fptr[1] & 0xF0) >> 4;
-    ub5 = (fptr[2] & 0xF0) >> 4;
-    ub4 = (fptr[3] & 0xF0) >> 4;
-    ub3 = (fptr[4] & 0xF0) >> 4;
-    ub2 = (fptr[5] & 0xF0) >> 4;
-    ub1 = (fptr[6] & 0xF0) >> 4;
-    ub0 = (fptr[7] & 0xF0) >> 4;
+    decoded.ub7 = (fptr[0] & 0xF0) >> 4;
+    decoded.ub6 = (fptr[1] & 0xF0) >> 4;
+    decoded.ub5 = (fptr[2] & 0xF0) >> 4;
+    decoded.ub4 = (fptr[3] & 0xF0) >> 4;
+    decoded.ub3 = (fptr[4] & 0xF0) >> 4;
+    decoded.ub2 = (fptr[5] & 0xF0) >> 4;
+    decoded.ub1 = (fptr[6] & 0xF0) >> 4;
+    decoded.ub0 = (fptr[7] & 0xF0) >> 4;
 }
 
 void wait_for_display()
