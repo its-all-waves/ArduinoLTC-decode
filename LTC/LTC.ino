@@ -1,5 +1,6 @@
 #include "Arduino.h"
 #include "DFRobot_LedDisplayModule.h"
+#include "DecodedLTC.h"
 #include "LTCFrame.h"
 #include "LTCGenerator.h"
 
@@ -28,8 +29,8 @@
 // PROTOTYPES
 
 // decoding LTC stream + updating vars
-void decode_and_update_time_vals(volatile byte*);
-void decode_UB_and_update_vals();
+void decode_and_update_time_vals(DecodedLTC*, volatile byte*);
+void decode_UB_and_update_vals(volatile byte*);
 void update_TC_string();
 
 // segmented display
@@ -60,11 +61,6 @@ char* TC_string = "00.00.00.00";
 // the user bits string to print: same format as SMPTE_string
 char* UB_string = "UB.UB.UB.UB";
 
-// the time values (in decimal) extracted from LTC in the decoder
-typedef struct DecodedLTC {
-    uint8_t h, m, s, f;
-    uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
-};
 DecodedLTC decoded;
 
 // store 2 frames -- TODO: WHY 2? why not initialize to all zeros?
@@ -203,11 +199,11 @@ void loop()
     Serial.print(" - ");
 
     // decode time values and update the timecode string to be displayed
-    decode_and_update_time_vals(current_frame_bytes);
+    decode_and_update_time_vals(&decoded, current_frame_bytes);
     update_TC_string();
 
     // update the user bits string (but don't display it until appropriate)
-    decode_UB_and_update_vals();
+    decode_UB_and_update_vals(current_frame_bytes);
     update_UB_string();
 
     // reset
@@ -459,16 +455,17 @@ void update_UB_string()
 
 /* from the latest frame of LTC, decode time values into decimal integers */
 /*
-    Decode Binary Coded Decimal (BCD) values from specific bits of an LTC frame.
+    Decode Binary Coded Decimal (BCD) values from specific bits of an LTC frame
+    and store the values in the decoded struct.
 
 */
-void decode_and_update_time_vals(volatile byte* curr_frame_bytes)
+void decode_and_update_time_vals(DecodedLTC* decodedLTC, volatile byte* curr_frame_bytes)
 {
     // 10s place + 1s place
-    decoded.h = (curr_frame_bytes[7] & 0x03) * 10 + (curr_frame_bytes[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3)
-    decoded.m = (curr_frame_bytes[5] & 0x07) * 10 + (curr_frame_bytes[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
-    decoded.s = (curr_frame_bytes[3] & 0x07) * 10 + (curr_frame_bytes[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
-    decoded.f = (curr_frame_bytes[1] & 0x03) * 10 + (curr_frame_bytes[0] & 0x0F);
+    decodedLTC->h = (curr_frame_bytes[7] & 0x03) * 10 + (curr_frame_bytes[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3)
+    decodedLTC->m = (curr_frame_bytes[5] & 0x07) * 10 + (curr_frame_bytes[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
+    decodedLTC->s = (curr_frame_bytes[3] & 0x07) * 10 + (curr_frame_bytes[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
+    decodedLTC->f = (curr_frame_bytes[1] & 0x03) * 10 + (curr_frame_bytes[0] & 0x0F);
 
     /* Explanation for Dummies
 
@@ -516,7 +513,7 @@ void decode_and_update_time_vals(volatile byte* curr_frame_bytes)
 
 /* from the 8 data bytes of an LTC frame (remaining 2 for sync word), decode
 user bit hex vals and store them in their respective globals */
-void decode_UB_and_update_vals()
+void decode_UB_and_update_vals(volatile byte* curr_frame_bytes)
 {
     /* rshift 4 bc, despite picking out the large half of LTC byte, we're
     using 1,2,4,8 places only, as that's all that's needed to make a hex char
@@ -524,21 +521,72 @@ void decode_UB_and_update_vals()
     - each ubX is 1 digit bt 0 and F (aka a hex char)
     - ...& 0xF0 -> access largest 4 bits of this LTC byte by masking off the
         smallest 4 bits */
-    decoded.ub7 = (current_frame_bytes[0] & 0xF0) >> 4;
-    decoded.ub6 = (current_frame_bytes[1] & 0xF0) >> 4;
-    decoded.ub5 = (current_frame_bytes[2] & 0xF0) >> 4;
-    decoded.ub4 = (current_frame_bytes[3] & 0xF0) >> 4;
-    decoded.ub3 = (current_frame_bytes[4] & 0xF0) >> 4;
-    decoded.ub2 = (current_frame_bytes[5] & 0xF0) >> 4;
-    decoded.ub1 = (current_frame_bytes[6] & 0xF0) >> 4;
-    decoded.ub0 = (current_frame_bytes[7] & 0xF0) >> 4;
+    decoded.ub7 = (curr_frame_bytes[0] & 0xF0) >> 4;
+    decoded.ub6 = (curr_frame_bytes[1] & 0xF0) >> 4;
+    decoded.ub5 = (curr_frame_bytes[2] & 0xF0) >> 4;
+    decoded.ub4 = (curr_frame_bytes[3] & 0xF0) >> 4;
+    decoded.ub3 = (curr_frame_bytes[4] & 0xF0) >> 4;
+    decoded.ub2 = (curr_frame_bytes[5] & 0xF0) >> 4;
+    decoded.ub1 = (curr_frame_bytes[6] & 0xF0) >> 4;
+    decoded.ub0 = (curr_frame_bytes[7] & 0xF0) >> 4;
+
+    /* USER BITS BREAKDOWN
+
+    32 bits are assigned as eight groups/fields/chars of four [USER] BITS (UB)
+
+    32 bits = 4 bytes
+    4 bytes / 8 fields = 1/2 byte per field...
+    ... = 1x 4-bit binary number per field...
+
+    4 bits allows for a single hexadecimal character per field / UB char (0-F),
+    which is the standard format of UB in American film production
+
+    e.g. encode the date and reel (to understand decoding)
+        2023 Aug 7
+        sound reel #3F
+
+    GOAL USER BITS (UB)   23 : 08 : 07 : 3F -->
+
+          2        3 :      0        8 :      0        7 :      3        F  <- UB goal / hex value
+    0 0 1 0  0 0 1 1  0 0 0 0  1 0 0 0  0 0 0 0  0 1 1 1  0 0 1 1  0 1 1 0  <- encoded LTC stream
+    - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -
+    8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  <- place - (may be backwards, too tired to tell atm)
+          7        6        5        4        3        2        1        0  <- LTC byte number (UB lives in largest half of the byte)
+          7        6        5        4        3        2        1        0  <- UB field/character (offset by 1 from spec, so we can count from 0)
+
+
+    where are the user bit fields within the LTC bit array / schema?
+
+        field/char #     large 1/2 of    LTC bits
+        ++++++++++++     ++++++++++++    ++++++++
+                   1     byte 0          04-07
+                   2     byte 1          12-15
+                   3     byte 2          20-23
+                   4     byte 3          28-31
+                   5     byte 4          36-39
+                   6     byte 5          44-47
+                   7     byte 6          52-55
+                   8     byte 7          60-63
+
+    how do we access the bits in the 2nd half of the data bytes 1-8
+        (9-10 is the sync word)
+
+        mask off the discarded bits (holding timecode)
+            ... & 0xF0
+            reveals position of any binary 1s in the larger half of the LTC byte
+
+        right shift >> 4 places bc we're taking the larger half of a byte
+            this would normally be the places 16, 32, 64, 128, but the LTC spec
+            uses these 4 bits as places 1, 2, 4, 8 as that's all that's required
+            to represent a hexadecimal character
+    */
 }
 
 void wait_for_display()
 {
     // wait for led display to init
     while (LED.begin(LED.e8Bit) != 0) {
-        Serial.println("Failed to initialize the chip, please confirm the chip connection!");
+        Serial.println("Failed to initialize the display, please confirm the display connection!");
         delay(1000);
     }
 }
@@ -592,57 +640,6 @@ void setup_hall_sensor_for_pin_change_interrupt()
     PCMSK2 |= B00000100;
     pinMode(HALL_SENSOR_PIN, INPUT);
 }
-
-/* USER BITS BREAKDOWN
-
-    32 bits are assigned as eight groups/fields/chars of four [USER] BITS (UB)
-
-    32 bits = 4 bytes
-    4 bytes / 8 fields = 1/2 byte per field...
-    ... = 1x 4-bit binary number per field...
-
-    4 bits allows for a single hexadecimal character per field / UB char (0-F),
-    which is the standard format of UB in American film production
-
-    e.g. encode the date and reel (to understand decoding)
-        2023 Aug 7
-        sound reel #3F
-
-    GOAL USER BITS (UB)   23 : 08 : 07 : 3F -->
-
-          2        3 :      0        8 :      0        7 :      3        F  <- UB goal / hex value
-    0 0 1 0  0 0 1 1  0 0 0 0  1 0 0 0  0 0 0 0  0 1 1 1  0 0 1 1  0 1 1 0  <- encoded LTC stream
-    - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -  - - - -
-    8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  8 4 2 1  <- place - (may be backwards, too tired to tell atm)
-          7        6        5        4        3        2        1        0  <- LTC byte number (UB lives in largest half of the byte)
-          7        6        5        4        3        2        1        0  <- UB field/character (offset by 1 from spec, so we can count from 0)
-
-
-    where are the user bit fields within the LTC bit array / schema?
-
-        field/char #     large 1/2 of    LTC bits
-        ++++++++++++     ++++++++++++    ++++++++
-                   1     byte 0          04-07
-                   2     byte 1          12-15
-                   3     byte 2          20-23
-                   4     byte 3          28-31
-                   5     byte 4          36-39
-                   6     byte 5          44-47
-                   7     byte 6          52-55
-                   8     byte 7          60-63
-
-    how do we access the bits in the 2nd half of the data bytes 1-8
-        (9-10 is the sync word)
-
-        mask off the discarded bits (holding timecode)
-            ... & 0xF0
-            reveals position of any binary 1s in the larger half of the LTC byte
-
-        right shift >> 4 places bc we're taking the larger half of a byte
-            this would normally be the places 16, 32, 64, 128, but the LTC spec
-            uses these 4 bits as places 1, 2, 4, 8 as that's all that's required
-            to represent a hexadecimal character
-*/
 
 /*
     HOW ARE CHARACTERS PRINTED ON THE SEGMENTED DISPLAY?
