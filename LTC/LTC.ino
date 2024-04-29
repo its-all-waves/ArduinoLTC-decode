@@ -170,11 +170,18 @@ void loop()
     //     return;
     // }
 
-    // mode of operation is DECODER, state is NOSYNC or SYNCED
+    if (clockState == ClockState::NO_SYNC) {
+        Serial.println("STATE IS NO_SYNC. HANDLE THIS CASE.");
+        return;
+    }
+
+    // STATE IS SYNC
 
     // clapper handling (via hall effect sensor)
-    if (just_clapped)
+    if (just_clapped) {
+        just_clapped = false;
         handle_clap();
+    }
 
     if (clapper_is_open) {
         handle_open_clapper();
@@ -341,7 +348,6 @@ ISR(PCINT2_vect)
     // (clapper STATE currently CLOSED -- must be closed to open)
     if (!clapper_is_open) {
         Serial.println("OPEN CLAPPER");
-        just_clapped = false;
         clapper_is_open = true;
     }
     // interrupt was triggered by CLOSING the clapper
@@ -349,7 +355,6 @@ ISR(PCINT2_vect)
     else {
         Serial.println("CLOSE CLAPPER");
         clapper_is_open = false;
-        just_clapped = true;
     }
 
     interrupts();
