@@ -102,8 +102,8 @@ volatile unsigned short validBitCount; //            " "            bits decoded
 volatile byte frameBitCount;
 
 volatile byte oneFlag = 0;
-volatile byte currentBit;
-volatile byte lastBit;
+// volatile boolean curr_bit_val;
+// volatile boolean last_bit_val;
 volatile unsigned int bitTime; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits
 
 // used to update ltc data in the ICP1 interrupt (LTC input) (decode mode)
@@ -190,13 +190,14 @@ void loop()
 
     // clapper handling (via hall effect sensor)
     if (just_clapped) {
-        just_clapped = false;
         handle_clap();
     }
 
-    if (clapper_is_open) {
+    else if (clapper_is_open) {
         handle_open_clapper();
-    } else {
+    }
+
+    else {
         if (decoded.f == 0) {
             // Serial.println("SECOND MARK");
             // TODO: the following does not work!
@@ -207,6 +208,8 @@ void loop()
     // only proceed to update time vars if we've past the end of an LTC frame
     if (!frameAvailable)
         return;
+
+    frameAvailable = false;
 
     // reached end of a frame, so there's new data to print
 
@@ -223,23 +226,35 @@ void loop()
     // update the user bits string (but don't display it until appropriate)
     decode_UB_and_update_vals(current_frame_bytes);
     update_UB_string();
-
-    // reset
-    frameAvailable = false;
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // DECODER
 
+volatile boolean curr_bit_val, last_bit_val;
+
+#define LAST_LTC_BIT_INDEX 79
 /* triggered when a transition (?) is detected at the input capture pin */
 ISR(TIMER1_CAPT_vect)
 {
-    TCCR1B ^= _BV(ICES1); // toggle edge capture / ICES1 = input capture edge select / specifies whether this capture should happen with the rising edge (when ICES1 = 1) or the falling edge (when ICES1 = 0).
+    /*
+    Toggle edge capture. ICES1 = input capture edge select. Specifies whether
+    this capture should happen with the rising edge (ICES1 = 1) or the falling
+    edge (ICES1 = 0).
+
+    WHY?
+    According to the LTC modulation scheme, each bit period starts at the
+    opposite state of the last. So if this bit starts hi, next bit starts low.
+    This also accounts for the mid-bit-period transition that defines a binary
+    1. Apparently with each transition/firing of this ISR, we need to start
+    listening for the opposite transition.
+    */
+    TCCR1B ^= _BV(ICES1);
     bitTime = ICR1; // store counter value at edge / ICR = input capture register
     TCNT1 = 0; // reset counter
 
-    // remove out of range value
-    if ((bitTime < BIT_TIME_MIN) || (bitTime > BIT_TIME_MAX)) {
+    // remove out of range value // TODO: make this comment better
+    if (bitTime < BIT_TIME_MIN || bitTime > BIT_TIME_MAX) {
         // reset everything
         syncValue = 0;
         validBitCount = 0;
@@ -254,26 +269,25 @@ ISR(TIMER1_CAPT_vect)
         ? validBitCount + 1
         : 0;
 
-    /* TODO: what are bitTime, BIT_TIME_THRESHOLD, and what's happening here?
-    LTC 1 bit has 2 transitions per bit period where a 0 bit has 1 transition,
-    so it would make sense that the bit we're reading now should be called a 0
-    if there was a larger time between transitions hi/lo/hi
-
-    is that what this is getting at?
+    /*
+    In the LTC modulation scheme, "1" bit has 2 transitions per bit period where
+    a "0" bit has 1 transition. If the measured period between transitions is
+    greater than that required to make a 1 bit, it must be a 0 bit.
     */
-    currentBit = bitTime > BIT_TIME_THRESHOLD
+    curr_bit_val = bitTime > BIT_TIME_THRESHOLD
         ? 0
         : 1;
 
-    // don't count 1 twice!
-    if (currentBit == 1 && lastBit == 1) {
-        lastBit = 0;
+    // don't count 1 twice! TODO: What does this do? DUNNO but it breaks without it!
+    if (curr_bit_val == 1 && last_bit_val == 1) {
+        last_bit_val = 0;
         return;
     }
-    lastBit = currentBit;
+
+    last_bit_val = curr_bit_val;
 
     // update frame sync pattern detection
-    syncValue = (syncValue >> 1) + (currentBit << 15);
+    syncValue = (syncValue >> 1) + (curr_bit_val << 15);
 
     // update clockState
     switch (clockState) {
@@ -286,8 +300,10 @@ ISR(TIMER1_CAPT_vect)
         }
         break;
     case ClockState::SYNC:
-        if ((frameBitCount > 79 && syncValue != SYNC_PATTERN)
-            || (syncValue == SYNC_PATTERN && frameBitCount != 79)) {
+        // if it seems we reached the end of a frame but didn't see the sync pattern,
+        // or if we see a sync pattern but have not counted
+        if ((frameBitCount > LAST_LTC_BIT_INDEX && syncValue != SYNC_PATTERN)
+            /* || (syncValue == SYNC_PATTERN && frameBitCount != LAST_LTC_BIT_INDEX) */) {
             // something went wrong!
             syncValue = 0;
             validBitCount = 0;
@@ -314,17 +330,17 @@ ISR(TIMER1_CAPT_vect)
         // we're on a bit between the start & end of the current frame
 
         // ptr to the current frame in the array of LTC frames (doesn't compile if global)
-        byte* f = frames[currentFrameIndex]; // (grab all the bits we've gathered for this frame so far)
+        volatile byte* f = frames[currentFrameIndex]; // (grab all the bits we've gathered for this frame so far)
 
         // TODO: why is this different from currentFrameIndex?
         idx = frameBitCount / 8; // get the index of a byte from frames[]
         bIdx = frameBitCount & 0x07; // the bit index of this frame
 
-        // update the current bit (in its byte at f[idx]) with the value of currentBit
-        f[idx] = (f[idx] & ~(1 << bIdx)) | (currentBit << bIdx);
+        // update the current bit (in its byte at f[idx]) with the value of curr_bit_val
+        f[idx] = (f[idx] & ~(1 << bIdx)) | (curr_bit_val << bIdx);
 
         /*
-        if (currentBit)
+        if (curr_bit_val)
             f[idx] |= 1 << bIdx;
         else
             f[idx] &= ~(1 << bIdx);
@@ -358,14 +374,15 @@ ISR(PCINT2_vect)
     // interrupt was triggered by OPENING the clapper
     // (clapper STATE currently CLOSED -- must be closed to open)
     if (!clapper_is_open) {
-        Serial.println("OPEN CLAPPER");
         clapper_is_open = true;
+        Serial.println("OPEN CLAPPER");
     }
     // interrupt was triggered by CLOSING the clapper
     // (clapper STATE currently OPEN -- must be open to close)
     else {
-        Serial.println("CLOSE CLAPPER");
         clapper_is_open = false;
+        just_clapped = true;
+        Serial.println("CLOSE CLAPPER");
     }
 
     interrupts();
@@ -384,8 +401,6 @@ void startLTCDecoder()
     validBitCount = 0;
     bitTime = 0;
     syncValue = 0;
-    currentBit = 0;
-    lastBit = 0;
     currentFrameIndex = 0;
     validFrameCount = 0;
     frameAvailable = false;
@@ -634,7 +649,6 @@ void freeze_display()
 
 void handle_clap()
 {
-    // LED.displayOff();
     just_clapped = false; // reset for next clap
     freeze_display();
 }
