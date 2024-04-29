@@ -494,7 +494,7 @@ void decode_and_update_time_vals(DecodedLTC* decodedLTC, volatile byte* curr_fra
             - current hour is 12
             - 7th index is hour 10's place, 6th is 1's place
                 - 7th index = 1, 6th = 2
-                - small 1/2 of 7th and 6th bytes of 8 byte (80 bit) long frame
+                - small 1/2 of 7th and 6th bytes of 10 byte (80 bit) long frame
 
                     7th byte (2 least sig bits) - representing hour 10's place (least to most significant bit):
                     [ 0 0 0 1 ]-0-0-0-0  ->  & 0x03  ->
