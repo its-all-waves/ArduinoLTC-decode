@@ -28,7 +28,7 @@
 // PROTOTYPES
 
 // decoding LTC stream + updating vars
-void decode_and_update_time_vals();
+void decode_and_update_time_vals(volatile byte*);
 void decode_UB_and_update_vals();
 void update_TC_string();
 
@@ -61,14 +61,11 @@ char* TC_string = "00.00.00.00";
 char* UB_string = "UB.UB.UB.UB";
 
 // the time values (in decimal) extracted from LTC in the decoder
-typedef struct DecodedTC {
+typedef struct DecodedLTC {
     uint8_t h, m, s, f;
     uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
 };
-DecodedTC decoded;
-
-// user bit fields/chars extracted from LTC in the decoder
-// uint8_t ub7, ub6, ub5, ub4, ub3, ub2, ub1, ub0;
+DecodedLTC decoded;
 
 // store 2 frames -- TODO: WHY 2? why not initialize to all zeros?
 volatile LTCFrame frames[2] = {
@@ -80,9 +77,9 @@ volatile byte currentFrameIndex; // index of frames[2] -- can be 0 or 1 (ASSUMPT
 volatile boolean frameAvailable; // indicates received last bit of an LTC frame
 
 // the LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101
-const unsigned short syncPattern = 0xBFFC;
+const unsigned short SYNC_PATTERN = 0xBFFC;
 // read from incoming LTC
-// when matches syncPattern, indicates end of a frame (frameAvailable = true)
+// when matches SYNC_PATTERN, indicates end of a frame (frameAvailable = true)
 volatile unsigned short syncValue;
 
 // states of the machine
@@ -105,7 +102,7 @@ volatile unsigned int bitTime; // TODO: is this the width of the LTC bit in time
 // used to update ltc data in the ICP1 interrupt (LTC input) (decode mode)
 byte idx, bIdx;
 
-byte* fptr; // index into this to access the bytes of the current LTC frame (decode mode)
+volatile byte* current_frame_bytes; // index into this to access the bytes of the current LTC frame (decode mode)
 
 int previousOutputFrameIndex = 0;
 
@@ -199,14 +196,14 @@ void loop()
 
     // reached end of a frame, so there's new data to print
 
-    fptr = frames[1 - currentFrameIndex]; // apparently this error can be ignored (?): a value of type "volatile byte *" cannot be assigned to an entity of type "byte *"C/C++(513)
+    current_frame_bytes = frames[1 - currentFrameIndex];
 
     Serial.print("Frame: ");
     Serial.print(validFrameCount - 1);
     Serial.print(" - ");
 
     // decode time values and update the timecode string to be displayed
-    decode_and_update_time_vals();
+    decode_and_update_time_vals(current_frame_bytes);
     update_TC_string();
 
     // update the user bits string (but don't display it until appropriate)
@@ -268,15 +265,15 @@ ISR(TIMER1_CAPT_vect)
     switch (state) {
     case NOSYNC:
         // sync pattern detected
-        if (syncValue == syncPattern) {
+        if (syncValue == SYNC_PATTERN) {
             state = SYNCED;
             frameBitCount = 0;
             return;
         }
         break;
     case SYNCED:
-        if ((frameBitCount > 79 && syncValue != syncPattern)
-            || (syncValue == syncPattern && frameBitCount != 79)) {
+        if ((frameBitCount > 79 && syncValue != SYNC_PATTERN)
+            || (syncValue == SYNC_PATTERN && frameBitCount != 79)) {
             // something went wrong!
             syncValue = 0;
             validBitCount = 0;
@@ -287,7 +284,7 @@ ISR(TIMER1_CAPT_vect)
         }
 
         // if this is the last bit of a frame
-        if (syncValue == syncPattern) {
+        if (syncValue == SYNC_PATTERN) {
             frameAvailable = true; // signal that we've captured a full frame
 
             // reset bit counter and increment total frame count
@@ -404,27 +401,27 @@ void stopLTCDecoder()
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GENERATOR
 
-ISR(TIMER1_COMPA_vect)
-{
-    generator.interupt();
-}
+// ISR(TIMER1_COMPA_vect)
+// {
+//     generator.interupt();
+// }
 
-void startLTCGenerator()
-{
-    noInterrupts();
-    TCCR1A = 0; // clear all
-    TCCR1B = (1 << WGM12) | (1 << CS10);
-    TIMSK1 = (1 << OCIE1A);
+// void startLTCGenerator()
+// {
+//     noInterrupts();
+//     TCCR1A = 0; // clear all
+//     TCCR1B = (1 << WGM12) | (1 << CS10);
+//     TIMSK1 = (1 << OCIE1A);
 
-    TCNT1 = 0;
+//     TCNT1 = 0;
 
-    // 30 fps, 80 bits * 30
-    OCR1A = 3333; // = 16000000 / (30 * 80 * 2)
+//     // 30 fps, 80 bits * 30
+//     OCR1A = 3333; // = 16000000 / (30 * 80 * 2)
 
-    state = GENERATOR;
-    generator.reset();
-    interrupts();
-}
+//     state = GENERATOR;
+//     generator.reset();
+//     interrupts();
+// }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HELPERS
@@ -461,13 +458,60 @@ void update_UB_string()
 }
 
 /* from the latest frame of LTC, decode time values into decimal integers */
-void decode_and_update_time_vals()
+/*
+    Decode Binary Coded Decimal (BCD) values from specific bits of an LTC frame.
+
+*/
+void decode_and_update_time_vals(volatile byte* curr_frame_bytes)
 {
     // 10s place + 1s place
-    decoded.h = (fptr[7] & 0x03) * 10 + (fptr[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3)
-    decoded.m = (fptr[5] & 0x07) * 10 + (fptr[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
-    decoded.s = (fptr[3] & 0x07) * 10 + (fptr[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
-    decoded.f = (fptr[1] & 0x03) * 10 + (fptr[0] & 0x0F);
+    decoded.h = (curr_frame_bytes[7] & 0x03) * 10 + (curr_frame_bytes[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3)
+    decoded.m = (curr_frame_bytes[5] & 0x07) * 10 + (curr_frame_bytes[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
+    decoded.s = (curr_frame_bytes[3] & 0x07) * 10 + (curr_frame_bytes[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
+    decoded.f = (curr_frame_bytes[1] & 0x03) * 10 + (curr_frame_bytes[0] & 0x0F);
+
+    /* Explanation for Dummies
+
+        - least significant bit first (small half is left half, large half is right half if reading chronologically)
+            - e.g. - frame number comes from the 0th and 1st bytes of the current frame,
+            hour from the 6th and 7th
+
+        - possible frame rates: 23.976, 24, 25, 29.97, 30
+
+        - max value representable with 4 bits, 3 bits, 2bits
+          1 1 1 1 = 15,  1 1 1 = 7,  1 1 = 3
+
+        field/char #     small 1/2 of    LTC bits            unit            max value needed
+        ++++++++++++     ++++++++++++    ++++++++            ++++            +++++++
+                   8     byte 0          00-03 (4 bits)      frame 1's       9 (as in 29 frames)
+                   7     byte 1          08-09 (2 bits)      frame 10's      3 (as in 30 frames)
+                   6     byte 2          16-19 (4 bits)      seconds 1's     9 (as in 59 seconds)
+                   5     byte 3          24-26 (3 bits)      seconds 10's    5 (as in 59 seconds)
+                   4     byte 4          32-35 (4 bits)      minutes 1's     9 (as in 59 minutes)
+                   3     byte 5          40-42 (3 bits)      minutes 10's    5 (as in 59 minutes)
+                   2     byte 6          48-51 (4 bits)      hours 1's       3 (as in 23 hours)
+                   1     byte 7          56-57 (2 bits)      hours 10's      2 (as in 23 hours)
+
+        Example:
+            - current hour is 12
+            - 7th index is hour 10's place, 6th is 1's place
+                - 7th index = 1, 6th = 2
+                - small 1/2 of 7th and 6th bytes of 8 byte (80 bit) long frame
+
+                    7th byte (2 least sig bits) - representing hour 10's place (least to most significant bit):
+                    [ 0 0 0 1 ]-0-0-0-0  ->  & 0x03  ->
+                    & 0 0 1 1
+                    = 0 0 0 1  = decimal value 1
+
+                    6th byte (4 least sig bits) - representing hour 1's place (least to most significant bit):
+                    [ 0 0 1 0 ]-0-0-0-0  -> & 0x0F  ->
+                    & 1 1 1 1
+                    = 0 0 1 0  = decimal value 2
+
+                    What have we done here?
+                        - decoded decimal values from binary values
+
+    */
 }
 
 /* from the 8 data bytes of an LTC frame (remaining 2 for sync word), decode
@@ -480,14 +524,14 @@ void decode_UB_and_update_vals()
     - each ubX is 1 digit bt 0 and F (aka a hex char)
     - ...& 0xF0 -> access largest 4 bits of this LTC byte by masking off the
         smallest 4 bits */
-    decoded.ub7 = (fptr[0] & 0xF0) >> 4;
-    decoded.ub6 = (fptr[1] & 0xF0) >> 4;
-    decoded.ub5 = (fptr[2] & 0xF0) >> 4;
-    decoded.ub4 = (fptr[3] & 0xF0) >> 4;
-    decoded.ub3 = (fptr[4] & 0xF0) >> 4;
-    decoded.ub2 = (fptr[5] & 0xF0) >> 4;
-    decoded.ub1 = (fptr[6] & 0xF0) >> 4;
-    decoded.ub0 = (fptr[7] & 0xF0) >> 4;
+    decoded.ub7 = (current_frame_bytes[0] & 0xF0) >> 4;
+    decoded.ub6 = (current_frame_bytes[1] & 0xF0) >> 4;
+    decoded.ub5 = (current_frame_bytes[2] & 0xF0) >> 4;
+    decoded.ub4 = (current_frame_bytes[3] & 0xF0) >> 4;
+    decoded.ub3 = (current_frame_bytes[4] & 0xF0) >> 4;
+    decoded.ub2 = (current_frame_bytes[5] & 0xF0) >> 4;
+    decoded.ub1 = (current_frame_bytes[6] & 0xF0) >> 4;
+    decoded.ub0 = (current_frame_bytes[7] & 0xF0) >> 4;
 }
 
 void wait_for_display()
@@ -578,14 +622,14 @@ void setup_hall_sensor_for_pin_change_interrupt()
 
         field/char #     large 1/2 of    LTC bits
         ++++++++++++     ++++++++++++    ++++++++
-                   1     byte 1          04-07
-                   2     byte 2          12-15
-                   3     byte 3          20-23
-                   4     byte 4          28-31
-                   5     byte 5          36-39
-                   6     byte 6          44-47
-                   7     byte 7          52-55
-                   8     byte 8          60-63
+                   1     byte 0          04-07
+                   2     byte 1          12-15
+                   3     byte 2          20-23
+                   4     byte 3          28-31
+                   5     byte 4          36-39
+                   6     byte 5          44-47
+                   7     byte 6          52-55
+                   8     byte 7          60-63
 
     how do we access the bits in the 2nd half of the data bytes 1-8
         (9-10 is the sync word)
