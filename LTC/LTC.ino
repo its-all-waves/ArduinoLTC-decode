@@ -120,12 +120,8 @@ volatile boolean just_clapped = false; // true -> display TC_on_clap
 volatile boolean clapper_is_open; // true -> display on
 /* the string that's displayed upon clap - a copy of the SMPTE_string at clap.
 also displayed upon boot up to indicate boot status. */
-char TC_on_clap[12] = {
-    '-', '-', '.', '-', '-', '.', '-', '-', '.', '-', '-', '\0'
-};
-char UB_on_clap[12] = {
-    'U', 'B', '.', 'U', 'B', '.', 'U', 'B', '.', 'U', 'B', '\0'
-};
+char* TC_on_clap = "--.--.--.--";
+char* UB_on_clap = "UB.UB.UB.UB";
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // MAIN ARDUINO FUNCTIONS
