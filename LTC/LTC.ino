@@ -64,6 +64,10 @@ char* UB_string = "UB.UB.UB.UB";
 DecodedLTC decoded;
 
 // store 2 frames -- TODO: WHY 2? why not initialize to all zeros?
+/*
+NOTE: each frame is 10 bytes or 80 bits (the LTC standard). The last two bytes
+of each frame is the sync pattern.
+*/
 volatile LTCFrame frames[2] = {
     { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF },
     { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF }
@@ -72,12 +76,19 @@ volatile byte currentFrameIndex; // index of frames[2] -- can be 0 or 1 (ASSUMPT
 
 volatile boolean frameAvailable; // flag - indicates received last bit of an LTC frame
 
-// the LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101
+/*
+The LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101.
+Used to detect the end of a frame.
+*/
 const unsigned short SYNC_PATTERN = 0xBFFC;
 // read from incoming LTC
 // when matches SYNC_PATTERN, indicates end of a frame (frameAvailable = true)
 volatile unsigned short syncValue;
 
+/*
+A misnomer - there is no clock to speak of. Refers to mutually
+exclusive states related to reading and generating an LTC signal.
+*/
 enum ClockState {
     NO_SYNC,
     SYNC,
