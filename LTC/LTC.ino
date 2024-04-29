@@ -70,7 +70,7 @@ volatile LTCFrame frames[2] = {
 };
 volatile byte currentFrameIndex; // index of frames[2] -- can be 0 or 1 (ASSUMPTION)
 
-volatile boolean frameAvailable; // indicates received last bit of an LTC frame
+volatile boolean frameAvailable; // flag - indicates received last bit of an LTC frame
 
 // the LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101
 const unsigned short SYNC_PATTERN = 0xBFFC;
@@ -78,15 +78,15 @@ const unsigned short SYNC_PATTERN = 0xBFFC;
 // when matches SYNC_PATTERN, indicates end of a frame (frameAvailable = true)
 volatile unsigned short syncValue;
 
-// states of the machine
-#define NOSYNC 0
-#define SYNCED 1
-#define GENERATOR 2
-volatile char state = NOSYNC;
+enum ClockState {
+    NO_SYNC,
+    SYNC,
+    // GENERATE // NO GENERATING YET!
+};
+volatile unsigned int clockState = ClockState::NO_SYNC;
 
-// running counter of valid frames decoded
-volatile unsigned long validFrameCount;
-volatile unsigned short validBitCount;
+volatile unsigned long validFrameCount; // running counter of valid frames decoded
+volatile unsigned short validBitCount; //            " "            bits decoded
 // counts bits up to 80, resets upon frameAvailable (got last bit of a frame)
 volatile byte frameBitCount;
 
@@ -100,7 +100,7 @@ byte idx, bIdx;
 
 volatile byte* current_frame_bytes; // index into this to access the bytes of the current LTC frame (decode mode)
 
-int previousOutputFrameIndex = 0;
+// int previousOutputFrameIndex = 0 // HAS NO REFS?
 
 // hall effect sensor macros and globals
 #define HALL_SENSOR_PIN 2
@@ -162,10 +162,10 @@ void loop()
     // (a complete LTC frame)
     digitalWrite(SIGNAL_LED, validBitCount > 80 ? HIGH : LOW);
     // set sync lock indicator LED hi when synced
-    digitalWrite(LOCK_LED, state == SYNCED ? HIGH : LOW);
+    digitalWrite(LOCK_LED, clockState == ClockState::SYNC ? HIGH : LOW);
 
     // // LEAVE ME COMMENTED OUT -- NO GENERATOR YET
-    // if (state == GENERATOR) {
+    // if (clockState == ClockState::GENERATE) {
     //     generator.update();
     //     return;
     // }
@@ -227,7 +227,7 @@ ISR(TIMER1_CAPT_vect)
         validBitCount = 0;
         validFrameCount = 0;
         frameAvailable = false;
-        state = NOSYNC;
+        clockState = ClockState::NO_SYNC;
         return;
     }
 
@@ -257,17 +257,17 @@ ISR(TIMER1_CAPT_vect)
     // update frame sync pattern detection
     syncValue = (syncValue >> 1) + (currentBit << 15);
 
-    // update state
-    switch (state) {
-    case NOSYNC:
+    // update clockState
+    switch (clockState) {
+    case ClockState::NO_SYNC:
         // sync pattern detected
         if (syncValue == SYNC_PATTERN) {
-            state = SYNCED;
+            clockState = ClockState::SYNC;
             frameBitCount = 0;
             return;
         }
         break;
-    case SYNCED:
+    case ClockState::SYNC:
         if ((frameBitCount > 79 && syncValue != SYNC_PATTERN)
             || (syncValue == SYNC_PATTERN && frameBitCount != 79)) {
             // something went wrong!
@@ -275,7 +275,7 @@ ISR(TIMER1_CAPT_vect)
             validBitCount = 0;
             validFrameCount = 0;
             frameAvailable = false;
-            state = NOSYNC;
+            clockState = ClockState::NO_SYNC;
             return;
         }
 
@@ -320,15 +320,16 @@ ISR(TIMER1_CAPT_vect)
 /* triggered upon signal loss (or discontinuity?) at input capture pin */
 ISR(TIMER1_OVF_vect)
 {
-    if (state == GENERATOR)
-        return;
+    // NOT GENERATING YET!/
+    // if (clockState == ClockState::GENERATE)
+    //     return;
 
     // if we overflow, we then lost signal
     syncValue = 0;
     validBitCount = 0;
     validFrameCount = 0;
     frameAvailable = false;
-    state = NOSYNC;
+    clockState = ClockState::NO_SYNC;
 }
 
 /* triggered by state change of hall sensor on pin D2 */
@@ -372,7 +373,7 @@ void startLTCDecoder()
     currentFrameIndex = 0;
     validFrameCount = 0;
     frameAvailable = false;
-    state = NOSYNC;
+    clockState = ClockState::NO_SYNC;
     interrupts();
 }
 
@@ -391,7 +392,7 @@ void stopLTCDecoder()
     digitalWrite(LOCK_LED, LOW);
 
     frameAvailable = false;
-    state = NOSYNC;
+    clockState = ClockState::NO_SYNC;
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -414,7 +415,7 @@ void stopLTCDecoder()
 //     // 30 fps, 80 bits * 30
 //     OCR1A = 3333; // = 16000000 / (30 * 80 * 2)
 
-//     state = GENERATOR;
+//     state = ClockState::GENERATE;
 //     generator.reset();
 //     interrupts();
 // }
