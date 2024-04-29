@@ -29,8 +29,8 @@
 // PROTOTYPES
 
 // decoding LTC stream + updating vars
-void decode_and_update_time_vals(DecodedLTC*, volatile byte*);
-void decode_UB_and_update_vals(volatile byte*);
+void decode_and_update_time_vals(DecodedLTC*, byte*);
+void decode_UB_and_update_vals(DecodedLTC*, byte*);
 void update_TC_string();
 
 // segmented display
@@ -224,7 +224,7 @@ void loop()
     update_TC_string();
 
     // update the user bits string (but don't display it until appropriate)
-    decode_UB_and_update_vals(current_frame_bytes);
+    decode_UB_and_update_vals(&decoded, current_frame_bytes);
     update_UB_string();
 }
 
@@ -426,30 +426,32 @@ void stopLTCDecoder()
     clockState = ClockState::NO_SYNC;
 }
 
+/*
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GENERATOR
 
-// ISR(TIMER1_COMPA_vect)
-// {
-//     generator.interupt();
-// }
+ISR(TIMER1_COMPA_vect)
+{
+    generator.interupt();
+}
 
-// void startLTCGenerator()
-// {
-//     noInterrupts();
-//     TCCR1A = 0; // clear all
-//     TCCR1B = (1 << WGM12) | (1 << CS10);
-//     TIMSK1 = (1 << OCIE1A);
+void startLTCGenerator()
+{
+    noInterrupts();
+    TCCR1A = 0; // clear all
+    TCCR1B = (1 << WGM12) | (1 << CS10);
+    TIMSK1 = (1 << OCIE1A);
 
-//     TCNT1 = 0;
+    TCNT1 = 0;
 
-//     // 30 fps, 80 bits * 30
-//     OCR1A = 3333; // = 16000000 / (30 * 80 * 2)
+    // 30 fps, 80 bits * 30
+    OCR1A = 3333; // = 16000000 / (30 * 80 * 2)
 
-//     state = ClockState::GENERATE;
-//     generator.reset();
-//     interrupts();
-// }
+    state = ClockState::GENERATE;
+    generator.reset();
+    interrupts();
+}
+ */
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HELPERS
@@ -464,10 +466,7 @@ void flash_sync_indicator()
     LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
 }
 
-/* update the timecode string before printing
-                    _ _ . _ _ . _ _ . _ _ \0
-  char[12] index:   0 1 2 3 4 5 6 7 8 9 0 1
-*/
+/* Update the timecode string before printing */
 void update_TC_string()
 {
     sprintf(
@@ -476,7 +475,7 @@ void update_TC_string()
         decoded.h, decoded.m, decoded.s, decoded.f);
 }
 
-/* update the user bits string before printing */
+/* Update the user bits string before printing */
 void update_UB_string()
 {
     sprintf(
@@ -485,11 +484,9 @@ void update_UB_string()
         decoded.ub0, decoded.ub1, decoded.ub2, decoded.ub3, decoded.ub4, decoded.ub5, decoded.ub6, decoded.ub7);
 }
 
-/* from the latest frame of LTC, decode time values into decimal integers */
 /*
-    Decode Binary Coded Decimal (BCD) values from specific bits of an LTC frame
-    and store the values in the decoded struct.
-
+Decode Binary Coded Decimal (BCD) values from specific bits of an LTC frame
+and store the values in the decodedLTC struct.
 */
 void decode_and_update_time_vals(DecodedLTC* decodedLTC, volatile byte* curr_frame_bytes)
 {
@@ -545,7 +542,7 @@ void decode_and_update_time_vals(DecodedLTC* decodedLTC, volatile byte* curr_fra
 
 /* from the 8 data bytes of an LTC frame (remaining 2 for sync word), decode
 user bit hex vals and store them in their respective globals */
-void decode_UB_and_update_vals(volatile byte* curr_frame_bytes)
+void decode_UB_and_update_vals(DecodedLTC* decodedLTC, volatile byte* curr_frame_bytes)
 {
     /* rshift 4 bc, despite picking out the large half of LTC byte, we're
     using 1,2,4,8 places only, as that's all that's needed to make a hex char
@@ -553,14 +550,14 @@ void decode_UB_and_update_vals(volatile byte* curr_frame_bytes)
     - each ubX is 1 digit bt 0 and F (aka a hex char)
     - ...& 0xF0 -> access largest 4 bits of this LTC byte by masking off the
         smallest 4 bits */
-    decoded.ub7 = (curr_frame_bytes[0] & 0xF0) >> 4;
-    decoded.ub6 = (curr_frame_bytes[1] & 0xF0) >> 4;
-    decoded.ub5 = (curr_frame_bytes[2] & 0xF0) >> 4;
-    decoded.ub4 = (curr_frame_bytes[3] & 0xF0) >> 4;
-    decoded.ub3 = (curr_frame_bytes[4] & 0xF0) >> 4;
-    decoded.ub2 = (curr_frame_bytes[5] & 0xF0) >> 4;
-    decoded.ub1 = (curr_frame_bytes[6] & 0xF0) >> 4;
-    decoded.ub0 = (curr_frame_bytes[7] & 0xF0) >> 4;
+    decodedLTC->ub7 = (curr_frame_bytes[0] & 0xF0) >> 4;
+    decodedLTC->ub6 = (curr_frame_bytes[1] & 0xF0) >> 4;
+    decodedLTC->ub5 = (curr_frame_bytes[2] & 0xF0) >> 4;
+    decodedLTC->ub4 = (curr_frame_bytes[3] & 0xF0) >> 4;
+    decodedLTC->ub3 = (curr_frame_bytes[4] & 0xF0) >> 4;
+    decodedLTC->ub2 = (curr_frame_bytes[5] & 0xF0) >> 4;
+    decodedLTC->ub1 = (curr_frame_bytes[6] & 0xF0) >> 4;
+    decodedLTC->ub0 = (curr_frame_bytes[7] & 0xF0) >> 4;
 
     /* USER BITS BREAKDOWN
 
