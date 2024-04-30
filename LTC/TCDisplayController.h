@@ -3,7 +3,7 @@
 #define BOOTUP_STRING "--.--.--.--"
 #define DISPLAY_HOLD_ON_CLAP_MILLISEC 500
 
-class TcDisplayController {
+class TCDisplayController {
 private:
     // instantiate segmented display object with the IIC address of the display
     DFRobot_LedDisplayModule display = DFRobot_LedDisplayModule(&Wire, 0xE0);
