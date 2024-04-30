@@ -3,6 +3,7 @@
 #include "DecodedLTC.h"
 #include "LTCFrame.h"
 #include "LTCGenerator.h"
+#include "TCDisplayController.h"
 
 #include <string.h>
 
@@ -28,31 +29,21 @@
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // PROTOTYPES
 
-// decoding LTC stream + updating vars
 void decode_and_update_time_vals(DecodedLTC*, byte*);
 void decode_UB_and_update_vals(DecodedLTC*, byte*);
 void update_TC_string();
 
-// segmented display
-void wait_for_display();
-void print_to_segment_display(char* SMPTE_string);
-void flash_sync_indicator();
-
-// main modes of the machine
 void startLTCDecoder();
-void stopLTCDecoder();
-void startLTCGenerator();
+// void stopLTCDecoder();
+// void startLTCGenerator();
 
-// hall effect sensor
 void setup_hall_sensor_for_pin_change_interrupt();
-void freeze_display();
 void handle_clap();
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GLOBAL VARIABLES
 
-// instantiate segmented display object with the IIC address of the display
-DFRobot_LedDisplayModule LED(&Wire, 0xE0);
+TcDisplayController tc_display_controller;
 
 // the timecode string to print: 8 digits + 3 separators (.) + \0
 // this format (with periods) is required by the DFRobot segment display lib
@@ -116,11 +107,11 @@ volatile byte* current_frame_bytes; // index into this to access the bytes of th
 // hall effect sensor macros and globals
 #define HALL_SENSOR_PIN 2
 #define DISPLAY_HOLD_MILLISEC 500
-volatile boolean just_clapped = false; // true -> display TC_on_clap
-volatile boolean clapper_is_open; // true -> display on
+volatile boolean just_clapped = false; // true -> display tc_on_clap
+volatile boolean clapper_is_open = false; // true -> display on
 /* the string that's displayed upon clap - a copy of the SMPTE_string at clap.
 also displayed upon boot up to indicate boot status. */
-char* TC_on_clap = "--.--.--.--";
+char* tc_on_clap = "--.--.--.--";
 char* UB_on_clap = "UB.UB.UB.UB";
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -142,19 +133,12 @@ void setup()
 
     setup_hall_sensor_for_pin_change_interrupt();
 
-    wait_for_display();
-
-    // enable all 8 digits on the display
-    LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
-
-    // indicate that the system is booting up by displaying dashes and dots
-    print_to_segment_display(TC_on_clap);
-    delay(DISPLAY_HOLD_MILLISEC);
+    tc_display_controller.init_display();
 
     // hall sensor HIGH means clapper_is_open
     clapper_is_open = digitalRead(HALL_SENSOR_PIN);
     if (!clapper_is_open) {
-        LED.displayOff();
+        tc_display_controller.display_off(); // TODO: can't i do this once instead of every iter?
     }
 
     // set the mode of operation
@@ -197,7 +181,7 @@ void loop()
         if (decoded.f == 0) {
             // Serial.println("SECOND MARK");
             // TODO: the following does not work!
-            flash_sync_indicator();
+            tc_display_controller.flash_sync_indicator(FRAME_RATE);
         }
     }
 
@@ -449,17 +433,19 @@ void startLTCGenerator()
 }
  */
 
-// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// HELPERS
-
-void flash_sync_indicator()
+/*
+Listen on pin D2 for state change (of hall sensor) to trigger an interrupt
+(IOW, set up a [P]in [C]hange [I]nterrupt)
+PCICR = pin change interrupt control register
+PCMSK2 = pin change interrupt mask, group 2)
+*/
+void setup_hall_sensor_for_pin_change_interrupt()
 {
-    LED.setDisplayArea(4);
-    LED.displayOn();
-    LED.print(".");
-    delay(1000 / FRAME_RATE);
-    LED.displayOff();
-    LED.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
+    // listen for state change on interrupt group 2 (port D) pins
+    PCICR |= B00000100;
+    // listen only on pin D2 (aka pin2 grp2) for state changes
+    PCMSK2 |= B00000100;
+    pinMode(HALL_SENSOR_PIN, INPUT);
 }
 
 /* Update the timecode string before printing */
@@ -607,93 +593,25 @@ void decode_UB_and_update_vals(DecodedLTC* decodedLTC, volatile byte* curr_frame
     */
 }
 
-void wait_for_display()
-{
-    // wait for led display to init
-    while (LED.begin(LED.e8Bit) != 0) {
-        Serial.println("Failed to initialize the display, please confirm the display connection!");
-        delay(1000);
-    }
-}
-
-/* print the SMPTE string (TC or UB) to the 8 digit, 7 segment, LED display */
-void print_to_segment_display(char* SMPTE_string)
-{
-    LED.print(
-        &SMPTE_string[0], &SMPTE_string[1], // hours, ones place + '.'
-        &SMPTE_string[3], &SMPTE_string[4], // minutes, "
-        &SMPTE_string[6], &SMPTE_string[7], // seconds, "
-        &SMPTE_string[9], &SMPTE_string[10] // frames, "
-    );
-}
-
-void freeze_display()
-{
-    // copy the current TC and UB to strings that will be held on the display
-    strcpy(TC_on_clap, TC_string);
-    strcpy(UB_on_clap, UB_string);
-
-    print_to_segment_display(TC_on_clap);
-    delay(DISPLAY_HOLD_MILLISEC);
-
-    print_to_segment_display(UB_on_clap);
-    delay(DISPLAY_HOLD_MILLISEC);
-}
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// HANDLERS
 
 void handle_clap()
 {
     just_clapped = false; // reset for next clap
-    freeze_display();
+    tc_display_controller.freeze_display(tc_on_clap, UB_string);
 }
 
 void handle_open_clapper()
 {
-    LED.displayOn();
-    print_to_segment_display(TC_string);
+    tc_display_controller.display_on();
+    tc_display_controller.print(TC_string);
 }
-
-/* listen on pin D2 for state change (of hall sensor) to trigger an interrupt
-(IOW, set up a [P]in [C]hange [I]nterrupt)
-    PCICR = pin change interrupt control register
-    PCMSK2 = pin change interrupt mask, group 2) */
-void setup_hall_sensor_for_pin_change_interrupt()
-{
-    // listen for state change on interrupt group 2 (port D) pins
-    PCICR |= B00000100;
-    // listen only on pin D2 (aka pin2 grp2) for state changes
-    PCMSK2 |= B00000100;
-    pinMode(HALL_SENSOR_PIN, INPUT);
-}
-
-/*
-    HOW ARE CHARACTERS PRINTED ON THE SEGMENTED DISPLAY?
-    A  ->  0x77  ->  0111 0111
-    B  ->  0x7C  ->  0111 1100
-    C  ->  0x39  ->  0011 1001
-    D  ->  0x5E  ->  0101 1110
-    E  ->  0x79  ->  0111 1001
-    F  ->  0x71  ->  0111 0001
-    .  ->  0x80  ->  1000 0000
-
-            LED Segment Display                 LETTER A (LSB)
-                     A                             bit 0
-                    ----                           ####
-               F  -      -  B            bit 5   #      #  bit 1
-                  -      -                       #      #
-             G -->  ----                           ####   <-- bit 6
-                  -      -               bit 4   #      #  bit 2
-               E  -      -  C                    #      #
-                    ----       #                   ----       -
-                      D        DP                  bit 3      bit 7
- */
 
 /* TODO:
-- debounce hall sensor
 - redo the state machine
+- debounce hall sensor
 - implement:
-    // flash the given value on the display
-    void flash_display(char *str_8_dig)
-
     // determines the framerate and informs the user via the segmented display
     void report_framerate()
 - bugfixes:
