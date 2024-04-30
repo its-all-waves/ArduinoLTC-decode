@@ -155,11 +155,13 @@ void loop()
     // set sync lock indicator LED hi when synced
     digitalWrite(LOCK_LED, clockState == ClockState::SYNC ? HIGH : LOW);
 
-    // // LEAVE ME COMMENTED OUT -- NO GENERATOR YET
-    // if (clockState == ClockState::GENERATE) {
-    //     generator.update();
-    //     return;
-    // }
+    /*
+    // LEAVE ME COMMENTED OUT -- NO GENERATOR YET
+    if (clockState == ClockState::GENERATE) {
+        generator.update();
+        return;
+    }
+    */
 
     if (clockState == ClockState::NO_SYNC) {
         Serial.println("STATE IS NO_SYNC. HANDLE THIS CASE.");
@@ -202,6 +204,7 @@ void loop()
     // decode time values and update the timecode string to be displayed
     decode_and_update_time_vals(&decoded, current_frame_bytes);
     update_TC_string();
+    Serial.println(TC_string);
 
     // update the user bits string (but don't display it until appropriate)
     decode_UB_and_update_vals(&decoded, current_frame_bytes);
@@ -209,13 +212,15 @@ void loop()
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// DECODER
+// INTERRUPT ROUTINES
 
 volatile boolean curr_bit_val, last_bit_val;
 
 #define LAST_LTC_BIT_INDEX 79
 /* triggered when a transition (?) is detected at the input capture pin */
-ISR(TIMER1_CAPT_vect)
+#define tc_reader_interrupt_routine() ISR(TIMER1_CAPT_vect)
+
+tc_reader_interrupt_routine()
 {
     /*
     Toggle edge capture. ICES1 = input capture edge select. Specifies whether
@@ -332,7 +337,9 @@ ISR(TIMER1_CAPT_vect)
 }
 
 /* triggered upon signal loss (or discontinuity?) at input capture pin */
-ISR(TIMER1_OVF_vect)
+#define tc_reader_signal_loss_interrupt_routine() ISR(TIMER1_OVF_vect)
+
+tc_reader_signal_loss_interrupt_routine()
 {
     // NOT GENERATING YET!/
     // if (clockState == ClockState::GENERATE)
@@ -346,8 +353,11 @@ ISR(TIMER1_OVF_vect)
     clockState = ClockState::NO_SYNC;
 }
 
-/* triggered by state change of hall sensor on pin D2 */
-ISR(PCINT2_vect)
+/* Triggered by state change of hall sensor on pin D2, i.e. on clap or open
+clapper. */
+#define tc_reader_clapper_change_interrupt_routine() ISR(PCINT2_vect)
+
+tc_reader_clapper_change_interrupt_routine()
 {
     noInterrupts();
 
@@ -357,20 +367,25 @@ ISR(PCINT2_vect)
         clapper_is_open = true;
         Serial.println("OPEN CLAPPER");
     }
-    // interrupt was triggered by CLOSING the clapper
+    // THIS WAS A CLAP! // interrupt was triggered by CLOSING the clapper
     // (clapper STATE currently OPEN -- must be open to close)
     else {
         clapper_is_open = false;
         just_clapped = true;
+        strcpy(tc_on_clap, TC_string); // capture the timecode at the clap
         Serial.println("CLOSE CLAPPER");
     }
 
     interrupts();
 }
 
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// HELPERS
+
 void startLTCDecoder()
 {
     noInterrupts();
+
     TCCR1A = B00000000; // clear all
     TCCR1B = B11000010; // ICNC1 noise reduction + ICES1 start on rising edge + CS11 divide by 8
     TCCR1C = B00000000; // clear all
@@ -385,12 +400,14 @@ void startLTCDecoder()
     validFrameCount = 0;
     frameAvailable = false;
     clockState = ClockState::NO_SYNC;
+
     interrupts();
 }
 
-void stopLTCDecoder()
+/* void stopLTCDecoder()
 {
     noInterrupts();
+
     TIMSK1 &= ~(1 << ICIE1);
     TIMSK1 &= ~(1 << TOIE1);
 
@@ -404,7 +421,7 @@ void stopLTCDecoder()
 
     frameAvailable = false;
     clockState = ClockState::NO_SYNC;
-}
+} */
 
 /*
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -463,7 +480,8 @@ void update_UB_string()
     sprintf(
         UB_string,
         "%d%d.%d%d.%d%d.%d%d",
-        decoded.ub0, decoded.ub1, decoded.ub2, decoded.ub3, decoded.ub4, decoded.ub5, decoded.ub6, decoded.ub7);
+        decoded.ub0, decoded.ub1, decoded.ub2, decoded.ub3,
+        decoded.ub4, decoded.ub5, decoded.ub6, decoded.ub7);
 }
 
 /*
