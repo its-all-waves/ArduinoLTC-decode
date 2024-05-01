@@ -16,7 +16,6 @@ exclusive states related to reading and generating an LTC signal.
 typedef enum ReaderState {
     NO_SYNC,
     SYNC,
-    // GENERATE // NO GENERATING YET!
 };
 
 #define BIT_TIME_THRESHOLD 700
@@ -26,76 +25,82 @@ typedef enum ReaderState {
 
 class LTCReader {
 public:
-    ReaderState state = NO_SYNC;
+    ReaderState get_state()
+    {
+        return state;
+    }
 
-    TC tc;
-    UB ub;
-
-    // the timecode string to print: 8 digits + 3 separators (.) + \0
-    // this format (with periods) is required by the DFRobot segment display lib
-    char* tc_string = "00.00.00.00";
-
-    // the user bits string to print: same format as SMPTE_string
-    char* ub_string = "UB.UB.UB.UB";
-
-    volatile unsigned short validBitCount; //            " "            bits decoded
-
-    volatile boolean frameAvailable; // indicates received last bit of an frame
-
-    volatile byte* current_frame_bytes; // index into this to access the bytes of the current LTC frame (decode mode)
-
-    /*
-    Store 2 frames -- TODO: WHY 2? why not initialize to all zeros?
-    NOTE: each frame is 10 bytes or 80 bits (the LTC standard). The last two
-    bytes of each frame is the sync pattern.
-    */
-    LTCFrame frames[2] = {
-        { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF },
-        { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF }
-    };
-    byte currentFrameIndex; // index of frames[2] -- can be 0 or 1 (ASSUMPTION)
-
-    unsigned long validFrameCount; // running counter of valid frames decoded
-
-    volatile unsigned int bitTime; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits
-
-private:
-    /* The LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101.
-    Used to detect the end of a frame. */
-    const unsigned short SYNC_PATTERN = 0xBFFC;
-    /* Read from incoming LTC. When matches SYNC_PATTERN, indicates end of a
-    frame (frameAvailable = true) */
-    volatile unsigned short syncValue;
-
-    // counts bits up to 80, resets upon frameAvailable (got last bit of a frame)
-    volatile byte frameBitCount;
-
-    // volatile byte oneFlag = 0; // NO REFS ?
-
-    volatile boolean curr_bit_val, last_bit_val;
-
-    /* Update the timecode string before printing */
-    void update_TC_string()
+    char* get_tc_string()
     {
         sprintf(
             tc_string,
             "%02d.%02d.%02d.%02d",
             tc.h, tc.m, tc.s, tc.f);
+        return tc_string;
     }
 
     /* Update the user bits string before printing */
-    void update_UB_string()
+    char* get_ub_string()
     {
         sprintf(
             ub_string,
             "%d%d.%d%d.%d%d.%d%d",
             ub.ub0, ub.ub1, ub.ub2, ub.ub3,
             ub.ub4, ub.ub5, ub.ub6, ub.ub7);
+        return ub_string;
     }
 
-public:
-    LTCReader() { }
+    boolean is_new_second()
+    {
+        return tc.f == 0;
+    }
 
+    /* Returns true if at least one valid frame has been read. */
+    boolean is_reading_valid_frames()
+    {
+        return validBitCount > 80;
+    }
+
+    volatile boolean frameAvailable; // indicates received last bit of an frame
+
+    unsigned long validFrameCount; // running counter of valid frames decoded
+
+private:
+    ReaderState state = NO_SYNC;
+
+    TC tc;
+    UB ub;
+
+    char* tc_string = "00.00.00.00";
+    char* ub_string = "UB.UB.UB.UB";
+
+    /* The LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101.
+    Used to detect the end of a frame. */
+    const uint16_t SYNC_PATTERN = 0xBFFC;
+    /* Read from incoming LTC. When matches SYNC_PATTERN, indicates end of a
+    frame (frameAvailable = true) */
+    volatile uint16_t syncValue;
+
+    volatile uint16_t validBitCount; // running counter of valid bits read
+    // counts bits up to 80, resets upon frameAvailable (got last bit of a frame)
+    volatile uint8_t frameBitCount;
+
+    volatile unsigned int bitTime; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits
+
+    /*
+    Store 2 frames -- TODO: WHY 2? why not initialize to all zeros, except sync pattern?
+    NOTE: each frame is 10 bytes or 80 bits (the LTC standard). The last two
+    bytes of each frame is the sync pattern.
+    */
+    LTCFrame frame_buf[2] = {
+        { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF },
+        { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF }
+    };
+    byte currentFrameIndex; // index of frames[2] -- can be 0 or 1 (ASSUMPTION)
+
+    volatile boolean curr_bit_val, last_bit_val;
+
+public:
     void reset()
     {
         validBitCount = 0;
@@ -107,20 +112,18 @@ public:
         state = NO_SYNC;
     }
 
-    void read_LTC_signal(unsigned int ICR_val)
+    /* If received a valid bit, store it in the  */
+    void update(unsigned int ICR_val)
     {
-        bitTime = ICR_val; // store counter value at edge / ICR = input capture register // TODO: verify comment is correct
+        bitTime = ICR_val; // store counter value at edge / ICR = input capture register // TODO: what is this doing at a higher level?
 
-        // remove out of range value // TODO: make this comment better
+        // reset on signal loss
         if (bitTime < BIT_TIME_MIN || bitTime > BIT_TIME_MAX) {
             reset();
             return;
         }
 
-        // increment valid bit counts, without overflow
-        validBitCount = validBitCount < 65535
-            ? validBitCount + 1
-            : 0;
+        validBitCount++;
 
         /*
         In the LTC modulation scheme, "1" bit has 2 transitions per bit period where
@@ -147,8 +150,7 @@ public:
 
         // we're on a bit between the start & end of the current frame
 
-        // ptr to the current frame in the array of LTC frames (doesn't compile if global)
-        byte* f = frames[currentFrameIndex]; // (grab all the bits we've gathered for this frame so far)
+        byte* f = frame_buf[currentFrameIndex]; // grab all the bits we've recorded for this frame so far
 
         // TODO: why is this different from currentFrameIndex?
         // used to update ltc data in the ICP1 interrupt (LTC input) (decode mode)
@@ -168,13 +170,13 @@ public:
     */
     void decode_tc()
     {
-        // 10s place + 1s place
-        tc.h = (current_frame_bytes[7] & 0x03) * 10 + (current_frame_bytes[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3)
-        tc.m = (current_frame_bytes[5] & 0x07) * 10 + (current_frame_bytes[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
-        tc.s = (current_frame_bytes[3] & 0x07) * 10 + (current_frame_bytes[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
-        tc.f = (current_frame_bytes[1] & 0x03) * 10 + (current_frame_bytes[0] & 0x0F);
+        byte* curr_frame = frame_buf[1 - currentFrameIndex];
 
-        update_TC_string();
+        // 10s place + 1s place
+        tc.h = (curr_frame[7] & 0x03) * 10 + (curr_frame[6] & 0x0F); // 0x03 -> smallest 2 bits (2+1=3)
+        tc.m = (curr_frame[5] & 0x07) * 10 + (curr_frame[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
+        tc.s = (curr_frame[3] & 0x07) * 10 + (curr_frame[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
+        tc.f = (curr_frame[1] & 0x03) * 10 + (curr_frame[0] & 0x0F);
 
         /* Explanation for Dummies
 
@@ -224,22 +226,16 @@ public:
     user bit hex vals and store them in their respective globals */
     void decode_ub()
     {
-        /* rshift 4 bc, despite picking out the large half of LTC byte, we're
-        using 1,2,4,8 places only, as that's all that's needed to make a hex char
-        - (right shift is always towards LSB)
-        - each ubX is 1 digit bt 0 and F (aka a hex char)
-        - ...& 0xF0 -> access largest 4 bits of this LTC byte by masking off the
-            smallest 4 bits */
-        ub.ub7 = (current_frame_bytes[0] & 0xF0) >> 4;
-        ub.ub6 = (current_frame_bytes[1] & 0xF0) >> 4;
-        ub.ub5 = (current_frame_bytes[2] & 0xF0) >> 4;
-        ub.ub4 = (current_frame_bytes[3] & 0xF0) >> 4;
-        ub.ub3 = (current_frame_bytes[4] & 0xF0) >> 4;
-        ub.ub2 = (current_frame_bytes[5] & 0xF0) >> 4;
-        ub.ub1 = (current_frame_bytes[6] & 0xF0) >> 4;
-        ub.ub0 = (current_frame_bytes[7] & 0xF0) >> 4;
+        byte* curr_frame = frame_buf[1 - currentFrameIndex];
 
-        update_UB_string();
+        ub.ub7 = (curr_frame[0] & 0xF0) >> 4;
+        ub.ub6 = (curr_frame[1] & 0xF0) >> 4;
+        ub.ub5 = (curr_frame[2] & 0xF0) >> 4;
+        ub.ub4 = (curr_frame[3] & 0xF0) >> 4;
+        ub.ub3 = (curr_frame[4] & 0xF0) >> 4;
+        ub.ub2 = (curr_frame[5] & 0xF0) >> 4;
+        ub.ub1 = (curr_frame[6] & 0xF0) >> 4;
+        ub.ub0 = (curr_frame[7] & 0xF0) >> 4;
 
         /* USER BITS BREAKDOWN
 
@@ -291,7 +287,7 @@ public:
                 uses these 4 bits as places 1, 2, 4, 8 as that's all that's required
                 to represent a hexadecimal character
         */
-    };
+    }
 
     /* Currently a misnomer. Returns true if state changes or reached the end of
     a valid frame. */
@@ -299,19 +295,16 @@ public:
     {
         switch (state) {
         case NO_SYNC:
-            // sync pattern detected
             if (syncValue == SYNC_PATTERN) {
+                // sync pattern detected
                 state = SYNC;
                 frameBitCount = 0;
                 return true;
             }
             break;
         case SYNC:
-            // if it seems we reached the end of a frame but didn't see the sync pattern,
-            // or if we see a sync pattern but have not counted
-            if ((frameBitCount > LAST_LTC_BIT_INDEX && syncValue != SYNC_PATTERN)
-                /* || (syncValue == SYNC_PATTERN && frameBitCount != LAST_LTC_BIT_INDEX) */) {
-                // something went wrong!
+            if (frameBitCount > LAST_LTC_BIT_INDEX && syncValue != SYNC_PATTERN) {
+                // reached the end of a frame but didn't see the sync pattern,
                 reset();
                 return true;
             }
@@ -319,8 +312,8 @@ public:
             // if this is the last bit of a frame
             if (syncValue == SYNC_PATTERN) {
                 frameAvailable = true; // signal that we've captured a full frame
-                frameBitCount = 0; // reset
                 validFrameCount++;
+                frameBitCount = 0; // reset
 
                 // alternates between 0 and 1: if 1, becomes 0; if 0, becomes 1
                 currentFrameIndex = 1 - currentFrameIndex;

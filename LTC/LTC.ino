@@ -1,6 +1,5 @@
 #include "Arduino.h"
 #include "DFRobot_LedDisplayModule.h"
-#include "LTCGenerator.h"
 #include "LTCReader.h"
 #include "TCDisplayController.h"
 
@@ -8,7 +7,6 @@
 
 #define ICP1 8 // the LTC input pin // 8 for atmega368, 4 for atmega32u4 //
 #define LTC_IN_PIN ICP1
-// #define LTC_OUT_PIN 9 // leave out -- no generation yet!
 
 #define SIGNAL_LED_PIN 13
 #define LOCK_LED_PIN 6
@@ -21,8 +19,6 @@
 
 void startLTCDecoder();
 void setup_hall_sensor_for_pin_change_interrupt();
-
-void handle_clap();
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GLOBAL VARIABLES
@@ -48,7 +44,6 @@ void setup()
     Serial.println("PROGRAM RUNNING"); // DEBUG
 
     pinMode(LTC_IN_PIN, INPUT); // ICP pin (digital pin 8 on arduino) as input
-    // pinMode(LTC_OUT, OUTPUT); // leave commented out -- no generation yet!
     pinMode(SIGNAL_LED_PIN, OUTPUT);
     digitalWrite(SIGNAL_LED_PIN, LOW);
     pinMode(LOCK_LED_PIN, OUTPUT);
@@ -65,27 +60,18 @@ void setup()
     }
 
     startLTCDecoder();
-    // startLTCGenerator(); // leave out -- no generation yet!
 }
 
 /* check for a new frame to print, print it (decoder) */
 void loop()
 {
-    /*
-    // LEAVE ME COMMENTED OUT -- NO GENERATOR YET
-    if (clockState == ClockState::GENERATE) {
-        generator.update();
-        return;
-    }
-    */
-
     // indicate valid LTC signal -> set signal LED hi once we've counted 80 bits
     // (a complete LTC frame)
-    digitalWrite(SIGNAL_LED_PIN, reader.validBitCount > 80 ? HIGH : LOW);
+    digitalWrite(SIGNAL_LED_PIN, reader.is_reading_valid_frames() ? HIGH : LOW);
     // set sync lock indicator LED hi when synced
-    digitalWrite(LOCK_LED_PIN, reader.state == SYNC ? HIGH : LOW);
+    digitalWrite(LOCK_LED_PIN, reader.get_state() == SYNC ? HIGH : LOW);
 
-    if (reader.state == NO_SYNC) {
+    if (reader.get_state() == NO_SYNC) {
         Serial.println("- NO SYNC -");
         return;
     }
@@ -94,7 +80,8 @@ void loop()
 
     // clapper handling (via hall effect sensor)
     if (just_clapped) {
-        handle_clap();
+        just_clapped = false; // reset for next clap
+        tc_display_controller.freeze_display(tc_on_clap, reader.get_ub_string());
     }
 
     else if (clapper_is_open) {
@@ -103,12 +90,12 @@ void loop()
             tc_display_controller.display_on();
         }
         if (reader.frameAvailable) {
-            tc_display_controller.print(reader.tc_string);
+            tc_display_controller.print(reader.get_tc_string());
         }
     }
 
     else {
-        if (reader.tc.f == 0) {
+        if (reader.is_new_second()) {
             tc_display_controller.flash_sync_indicator(FRAME_RATE);
         }
     }
@@ -121,16 +108,13 @@ void loop()
 
     reader.frameAvailable = false; // reset
 
-    reader.current_frame_bytes = reader.frames[1 - reader.currentFrameIndex];
+    reader.decode_tc();
+    reader.decode_ub();
 
     Serial.print("Frame: ");
     Serial.print(reader.validFrameCount - 1);
     Serial.print(" - ");
-
-    reader.decode_tc();
-    reader.decode_ub();
-
-    Serial.println(reader.tc_string);
+    Serial.println(reader.get_tc_string());
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -158,7 +142,7 @@ tc_reader_interrupt_routine()
     TCCR1B ^= _BV(ICES1);
     TCNT1 = 0; // reset counter
 
-    reader.read_LTC_signal(ICR1);
+    reader.update(ICR1);
 }
 
 /* Triggered upon signal loss (or discontinuity?) at input capture pin.
@@ -168,11 +152,6 @@ periodically durring SYNC state. */
 
 tc_reader_signal_loss_interrupt_routine()
 {
-    /*
-    // NOT GENERATING YET!
-    if (clockState == ClockState::GENERATE)
-        return;
-    */
     reader.reset();
 }
 
@@ -191,39 +170,12 @@ tc_reader_clapper_change_interrupt_routine()
         Serial.println("OPEN CLAPPER");
     } else {
         just_clapped = true;
-        strcpy(tc_on_clap, reader.tc_string); // capture the timecode at the clap
+        strcpy(tc_on_clap, reader.get_tc_string()); // capture the timecode at the clap
         Serial.println("CLOSE CLAPPER");
     }
 
     interrupts();
 }
-
-/*
-// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// GENERATOR
-
-ISR(TIMER1_COMPA_vect)
-{
-    generator.interupt();
-}
-
-void startLTCGenerator()
-{
-    noInterrupts();
-    TCCR1A = 0; // clear all
-    TCCR1B = (1 << WGM12) | (1 << CS10);
-    TIMSK1 = (1 << OCIE1A);
-
-    TCNT1 = 0;
-
-    // 30 fps, 80 bits * 30
-    OCR1A = 3333; // = 16000000 / (30 * 80 * 2)
-
-    state = ClockState::GENERATE;
-    generator.reset();
-    interrupts();
-}
- */
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HELPERS
@@ -243,25 +195,6 @@ void startLTCDecoder()
     interrupts();
 }
 
-/* void stopLTCDecoder()
-{
-    noInterrupts();
-
-    TIMSK1 &= ~(1 << ICIE1);
-    TIMSK1 &= ~(1 << TOIE1);
-
-    TCCR1B &= ~(1 << CS12);
-    TCCR1B &= ~(1 << CS11);
-    TCCR1B &= ~(1 << CS10);
-    interrupts();
-
-    digitalWrite(SIGNAL_LED_PIN, LOW); // valid after 1 frame
-    digitalWrite(LOCK_LED_PIN, LOW);
-
-    frameAvailable = false;
-    clockState = ClockState::NO_SYNC;
-} */
-
 /*
 Listen on pin D2 for state change (of hall sensor) to trigger an interrupt
 (IOW, set up a [P]in [C]hange [I]nterrupt)
@@ -278,12 +211,6 @@ void setup_hall_sensor_for_pin_change_interrupt()
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HANDLERS
-
-void handle_clap()
-{
-    just_clapped = false; // reset for next clap
-    tc_display_controller.freeze_display(tc_on_clap, reader.ub_string);
-}
 
 /* TODO:
 - redo the state machine
