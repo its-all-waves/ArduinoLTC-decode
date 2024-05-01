@@ -24,7 +24,10 @@ typedef enum ReaderState {
 #define LAST_LTC_BIT_INDEX 79
 
 class LTCReader {
-public:
+public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    volatile boolean frameAvailable; // indicates received last bit of an frame
+    unsigned long validFrameCount; // running counter of valid frames decoded
+
     ReaderState get_state()
     {
         return state;
@@ -61,46 +64,6 @@ public:
         return validBitCount > 80;
     }
 
-    volatile boolean frameAvailable; // indicates received last bit of an frame
-
-    unsigned long validFrameCount; // running counter of valid frames decoded
-
-private:
-    ReaderState state = NO_SYNC;
-
-    TC tc;
-    UB ub;
-
-    char* tc_string = "00.00.00.00";
-    char* ub_string = "UB.UB.UB.UB";
-
-    /* The LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101.
-    Used to detect the end of a frame. */
-    const uint16_t SYNC_PATTERN = 0xBFFC;
-    /* Read from incoming LTC. When matches SYNC_PATTERN, indicates end of a
-    frame (frameAvailable = true) */
-    volatile uint16_t syncValue;
-
-    volatile uint16_t validBitCount; // running counter of valid bits read
-    // counts bits up to 80, resets upon frameAvailable (got last bit of a frame)
-    volatile uint8_t frameBitCount;
-
-    volatile unsigned int bitTime; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits
-
-    /*
-    Store 2 frames -- TODO: WHY 2? why not initialize to all zeros, except sync pattern?
-    NOTE: each frame is 10 bytes or 80 bits (the LTC standard). The last two
-    bytes of each frame is the sync pattern.
-    */
-    LTCFrame frame_buf[2] = {
-        { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF },
-        { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF }
-    };
-    byte currentFrameIndex; // index of frames[2] -- can be 0 or 1 (ASSUMPTION)
-
-    volatile boolean curr_bit_val, last_bit_val;
-
-public:
     void reset()
     {
         validBitCount = 0;
@@ -110,58 +73,6 @@ public:
         validFrameCount = 0;
         frameAvailable = false;
         state = NO_SYNC;
-    }
-
-    /* If received a valid bit, store it in the  */
-    void update(unsigned int ICR_val)
-    {
-        bitTime = ICR_val; // store counter value at edge / ICR = input capture register // TODO: what is this doing at a higher level?
-
-        // reset on signal loss
-        if (bitTime < BIT_TIME_MIN || bitTime > BIT_TIME_MAX) {
-            reset();
-            return;
-        }
-
-        validBitCount++;
-
-        /*
-        In the LTC modulation scheme, "1" bit has 2 transitions per bit period where
-        a "0" bit has 1 transition. If the measured period between transitions is
-        greater than that required to make a 1 bit, it must be a 0 bit.
-        */
-        curr_bit_val = bitTime > BIT_TIME_THRESHOLD
-            ? 0
-            : 1;
-
-        // don't count 1 twice! TODO: What does this do? DUNNO but it breaks without it!
-        if (curr_bit_val == 1 && last_bit_val == 1) {
-            last_bit_val = 0;
-            return; // TODO: return what? does the caller return when this line returns?
-        }
-
-        last_bit_val = curr_bit_val;
-
-        // update frame sync pattern detection
-        syncValue = (syncValue >> 1) + (curr_bit_val << 15);
-
-        if (state_changed())
-            return;
-
-        // we're on a bit between the start & end of the current frame
-
-        byte* f = frame_buf[currentFrameIndex]; // grab all the bits we've recorded for this frame so far
-
-        // TODO: why is this different from currentFrameIndex?
-        // used to update ltc data in the ICP1 interrupt (LTC input) (decode mode)
-        byte idx = frameBitCount / 8; // get the index of a byte from frames[]
-        byte bIdx = frameBitCount & 0x07; // the bit index of this frame
-
-        // update the current bit (in its byte at f[idx]) with the value of curr_bit_val
-        f[idx] = (f[idx] & ~(1 << bIdx)) | (curr_bit_val << bIdx);
-
-        frameBitCount++;
-        return;
     }
 
     /*
@@ -324,4 +235,91 @@ public:
         }
         return false;
     }
+
+    /* If received a valid bit, store it in the  */
+    void update(unsigned int ICR_val)
+    {
+        bitTime = ICR_val; // store counter value at edge / ICR = input capture register // TODO: what is this doing at a higher level?
+
+        // reset on signal loss
+        if (bitTime < BIT_TIME_MIN || bitTime > BIT_TIME_MAX) {
+            reset();
+            return;
+        }
+
+        validBitCount++;
+
+        /*
+        In the LTC modulation scheme, "1" bit has 2 transitions per bit period where
+        a "0" bit has 1 transition. If the measured period between transitions is
+        greater than that required to make a 1 bit, it must be a 0 bit.
+        */
+        curr_bit_val = bitTime > BIT_TIME_THRESHOLD
+            ? 0
+            : 1;
+
+        // don't count 1 twice! TODO: What does this do? DUNNO but it breaks without it!
+        if (curr_bit_val == 1 && last_bit_val == 1) {
+            last_bit_val = 0;
+            return; // TODO: return what? does the caller return when this line returns?
+        }
+
+        last_bit_val = curr_bit_val;
+
+        // update frame sync pattern detection
+        syncValue = (syncValue >> 1) + (curr_bit_val << 15);
+
+        if (state_changed())
+            return;
+
+        // we're on a bit between the start & end of the current frame
+
+        byte* f = frame_buf[currentFrameIndex]; // grab all the bits we've recorded for this frame so far
+
+        // TODO: why is this different from currentFrameIndex?
+        // used to update ltc data in the ICP1 interrupt (LTC input) (decode mode)
+        byte idx = frameBitCount / 8; // get the index of a byte from frames[]
+        byte bIdx = frameBitCount & 0x07; // the bit index of this frame
+
+        // update the current bit (in its byte at f[idx]) with the value of curr_bit_val
+        f[idx] = (f[idx] & ~(1 << bIdx)) | (curr_bit_val << bIdx);
+
+        frameBitCount++;
+        return;
+    }
+
+private: // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    ReaderState state = NO_SYNC;
+
+    TC tc;
+    UB ub;
+
+    char* tc_string = "00.00.00.00";
+    char* ub_string = "00.00.00.00";
+
+    /* The LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101.
+    Used to detect the end of a frame. */
+    const uint16_t SYNC_PATTERN = 0xBFFC;
+    /* Read from incoming LTC. When matches SYNC_PATTERN, indicates end of a
+    frame (frameAvailable = true) */
+    volatile uint16_t syncValue;
+
+    volatile uint16_t validBitCount; // running counter of valid bits read
+    // counts bits up to 80, resets upon frameAvailable (got last bit of a frame)
+    volatile uint8_t frameBitCount;
+
+    volatile unsigned int bitTime; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits
+
+    /*
+    Store 2 frames -- TODO: WHY 2? why not initialize to all zeros, except sync pattern?
+    NOTE: each frame is 10 bytes or 80 bits (the LTC standard). The last two
+    bytes of each frame is the sync pattern.
+    */
+    LTCFrame frame_buf[2] = {
+        { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF },
+        { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF }
+    };
+    byte currentFrameIndex; // index of frames[2] -- can be 0 or 1 (ASSUMPTION)
+
+    volatile boolean curr_bit_val, last_bit_val;
 };
