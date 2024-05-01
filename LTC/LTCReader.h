@@ -70,7 +70,7 @@ private:
     // counts bits up to 80, resets upon frameAvailable (got last bit of a frame)
     volatile byte frameBitCount;
 
-    volatile byte oneFlag = 0;
+    // volatile byte oneFlag = 0; // NO REFS ?
 
     volatile boolean curr_bit_val, last_bit_val;
 

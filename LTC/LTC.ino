@@ -98,7 +98,9 @@ void loop()
     }
 
     else if (clapper_is_open) {
-        handle_open_clapper();
+        if (reader.frameAvailable) {
+            tc_display_controller.update_display(reader.tc_string);
+        }
     }
 
     else {
