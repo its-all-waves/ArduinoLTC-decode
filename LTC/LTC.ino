@@ -23,17 +23,18 @@ void startLTCDecoder();
 void setup_hall_sensor_for_pin_change_interrupt();
 
 void handle_clap();
-void handle_open_clapper();
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GLOBAL VARIABLES
 
 LTCReader reader;
 TCDisplayController tc_display_controller;
+// set to true in the clapper ISR, false when main loop detects true
+volatile boolean should_turn_on_display;
 
 // hall effect sensor macros and globals
 volatile boolean just_clapped = false; // true -> display tc_on_clap
-volatile boolean clapper_is_open = false; // true -> display on
+volatile boolean clapper_is_open = false; // true -> display on // hall sensor HIGH = clapper_is_open
 /* the string that's displayed upon clap - a copy of the tc_string at clap.
 also displayed upon boot up to indicate boot status. */
 char* tc_on_clap = "--.--.--.--";
@@ -58,10 +59,9 @@ void setup()
 
     tc_display_controller.init_display();
 
-    // hall sensor HIGH means clapper_is_open
     clapper_is_open = digitalRead(HALL_SENSOR_PIN);
     if (!clapper_is_open) {
-        tc_display_controller.display_off(); // TODO: can't i do this once instead of every iter?
+        tc_display_controller.display_off();
     }
 
     startLTCDecoder();
@@ -98,8 +98,12 @@ void loop()
     }
 
     else if (clapper_is_open) {
+        if (should_turn_on_display) {
+            should_turn_on_display = false;
+            tc_display_controller.display_on();
+        }
         if (reader.frameAvailable) {
-            tc_display_controller.update_display(reader.tc_string);
+            tc_display_controller.print(reader.tc_string);
         }
     }
 
@@ -180,16 +184,12 @@ tc_reader_clapper_change_interrupt_routine()
 {
     noInterrupts();
 
-    // interrupt was triggered by OPENING the clapper
-    // (clapper STATE currently CLOSED -- must be closed to open)
-    if (!clapper_is_open) {
-        clapper_is_open = true;
+    clapper_is_open = digitalRead(HALL_SENSOR_PIN);
+
+    if (clapper_is_open) {
+        should_turn_on_display = true;
         Serial.println("OPEN CLAPPER");
-    }
-    // THIS WAS A CLAP! // interrupt was triggered by CLOSING the clapper
-    // (clapper STATE currently OPEN -- must be open to close)
-    else {
-        clapper_is_open = false;
+    } else {
         just_clapped = true;
         strcpy(tc_on_clap, reader.tc_string); // capture the timecode at the clap
         Serial.println("CLOSE CLAPPER");
@@ -283,12 +283,6 @@ void handle_clap()
 {
     just_clapped = false; // reset for next clap
     tc_display_controller.freeze_display(tc_on_clap, reader.ub_string);
-}
-
-void handle_open_clapper()
-{
-    tc_display_controller.display_on();
-    tc_display_controller.print(reader.tc_string);
 }
 
 /* TODO:
