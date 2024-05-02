@@ -240,12 +240,12 @@ public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     }
 
     /* Store the new LTC bit in the current frame. The main work of LTCReader.
-    @param cycles_since_last_LTC_signal_phase_change The "time" of the phase change of the LTC
+    @param counter_ticks_since_LTC_signal_phase_change The "time" of the phase change of the LTC
     signal, or the time of the interrupt that triggered the update. The time is
     represented by a hardware timer/counter value. */
-    void update(unsigned int cycles_since_last_LTC_signal_phase_change)
+    void update(unsigned int counter_ticks_since_LTC_signal_phase_change)
     {
-        time_since_last_phase = cycles_since_last_LTC_signal_phase_change; // store counter value at edge / ICR = input capture register // TODO: what is this doing at a higher level?
+        time_since_last_phase = counter_ticks_since_LTC_signal_phase_change;
 
         // reset on signal loss
         if (time_since_last_phase < BIT_TIME_MIN || time_since_last_phase > BIT_TIME_MAX) {
