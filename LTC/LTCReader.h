@@ -25,8 +25,8 @@ typedef enum ReaderState {
 
 class LTCReader {
 public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    volatile boolean frameAvailable; // indicates received last bit of an frame
-    unsigned long validFrameCount; // running counter of valid frames decoded
+    volatile boolean frameAvailable = false; // indicates received last bit of an frame
+    unsigned long validFrameCount = 0; // running counter of valid frames decoded
 
     ReaderState get_state()
     {
@@ -302,13 +302,13 @@ private: // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     const uint16_t SYNC_PATTERN = 0xBFFC;
     /* Read from incoming LTC. When matches SYNC_PATTERN, indicates end of a
     frame (frameAvailable = true) */
-    volatile uint16_t syncValue;
+    volatile uint16_t syncValue = 0x0;
 
-    volatile uint16_t validBitCount; // running counter of valid bits read
+    volatile uint16_t validBitCount = 0; // running counter of valid bits read
     // counts bits up to 80, resets upon frameAvailable (got last bit of a frame)
-    volatile uint8_t frameBitCount;
+    volatile uint8_t frameBitCount = 0;
 
-    volatile unsigned int bitTime; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits
+    volatile unsigned int bitTime = 0; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits
 
     /*
     Store 2 frames -- TODO: WHY 2? why not initialize to all zeros, except sync pattern?
@@ -319,7 +319,7 @@ private: // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF },
         { 0x40, 0x20, 0x20, 0x30, 0x40, 0x10, 0x20, 0x10, 0xFC, 0xBF }
     };
-    byte currentFrameIndex; // index of frames[2] -- can be 0 or 1 (ASSUMPTION)
+    byte currentFrameIndex = 0; // index of frames[2] -- can be 0 or 1 (ASSUMPTION)
 
     volatile boolean curr_bit_val, last_bit_val;
 };

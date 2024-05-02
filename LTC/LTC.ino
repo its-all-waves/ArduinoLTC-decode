@@ -1,9 +1,8 @@
 #include "Arduino.h"
-#include "DFRobot_LedDisplayModule.h"
+#include <string.h>
+
 #include "LTCReader.h"
 #include "TCDisplayController.h"
-
-#include <string.h>
 
 #define ICP1 8 // the LTC input pin // 8 for atmega368, 4 for atmega32u4 //
 #define LTC_IN_PIN ICP1
@@ -17,13 +16,14 @@
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // PROTOTYPES
 
-void startLTCDecoder();
-void setup_hall_sensor_for_pin_change_interrupt();
+void set_flags_for_LTC_decoding_interrupt();
+void set_flags_for_hall_sensor_interrupt();
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GLOBAL VARIABLES
 
 LTCReader reader;
+
 TCDisplayController tc_display_controller;
 // set to true in the clapper ISR, false when main loop detects true
 volatile boolean should_turn_on_display;
@@ -50,7 +50,8 @@ void setup()
     digitalWrite(LOCK_LED_PIN, LOW);
     pinMode(HALL_SENSOR_PIN, INPUT);
 
-    setup_hall_sensor_for_pin_change_interrupt();
+    set_flags_for_hall_sensor_interrupt();
+    set_flags_for_LTC_decoding_interrupt();
 
     tc_display_controller.init_display();
 
@@ -58,8 +59,6 @@ void setup()
     if (!clapper_is_open) {
         tc_display_controller.display_off();
     }
-
-    startLTCDecoder();
 }
 
 /* check for a new frame to print, print it (decoder) */
@@ -178,7 +177,7 @@ tc_reader_clapper_change_interrupt_routine()
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HELPERS
 
-void startLTCDecoder()
+void set_flags_for_LTC_decoding_interrupt()
 {
     noInterrupts();
 
@@ -187,8 +186,6 @@ void startLTCDecoder()
     TCCR1C = B00000000; // clear all
     TIMSK1 = B00100001; // ICIE1 (bit 5) enable the icp, and TOIE1 (bit 0) for the overflow
     TCNT1 = 0; // clear timer1
-
-    reader.reset();
 
     interrupts();
 }
@@ -199,7 +196,7 @@ Listen on pin D2 for state change (of hall sensor) to trigger an interrupt
 PCICR = pin change interrupt control register
 PCMSK2 = pin change interrupt mask, group 2)
 */
-void setup_hall_sensor_for_pin_change_interrupt()
+void set_flags_for_hall_sensor_interrupt()
 {
     // listen for state change on interrupt group 2 (port D) pins
     PCICR |= B00000100;
