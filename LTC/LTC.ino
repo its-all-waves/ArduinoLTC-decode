@@ -121,9 +121,9 @@ void loop()
 // INTERRUPT ROUTINES
 
 /* triggered when a transition (?) is detected at the input capture pin */
-#define tc_reader_interrupt_routine() ISR(TIMER1_CAPT_vect)
+#define INTERRUPT_ROUTINE_tc_reader() ISR(TIMER1_CAPT_vect)
 
-tc_reader_interrupt_routine()
+INTERRUPT_ROUTINE_tc_reader()
 {
     /*
     Toggle edge capture. ICES1 = input capture edge select. Specifies whether
@@ -146,9 +146,9 @@ tc_reader_interrupt_routine()
 /* Triggered upon signal loss (or discontinuity?) at input capture pin.
 Discontinuity detection happens via the counter overflow. The counter gets reset
 periodically durring SYNC state. */
-#define tc_reader_signal_loss_interrupt_routine() ISR(TIMER1_OVF_vect)
+#define INTERRUPT_ROUTINE_tc_reader_signal_loss() ISR(TIMER1_OVF_vect)
 
-tc_reader_signal_loss_interrupt_routine()
+INTERRUPT_ROUTINE_tc_reader_signal_loss()
 {
     reader.reset();
 }
