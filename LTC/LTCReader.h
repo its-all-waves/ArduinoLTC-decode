@@ -1,6 +1,7 @@
 #include "LTCFrame.h"
 
 typedef struct TC {
+    // hours, minutes, seconds, frames
     uint8_t h = 0, m = 0, s = 0, f = 0;
 };
 
@@ -9,10 +10,6 @@ typedef struct UB {
             ub4 = 0, ub5 = 0, ub6 = 0, ub7 = 0;
 };
 
-/*
-A misnomer - there is no clock to speak of. Refers to mutually
-exclusive states related to reading and generating an LTC signal.
-*/
 typedef enum ReaderState {
     NO_SYNC,
     SYNC,
@@ -25,8 +22,8 @@ typedef enum ReaderState {
 
 class LTCReader {
 public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    volatile boolean frameAvailable = false; // indicates received last bit of an frame
-    unsigned long validFrameCount = 0; // running counter of valid frames decoded
+    volatile boolean is_new_frame = false; // true when received last bit of a frame
+    unsigned long running_frame_count = 0; // resets when sync is lost
 
     ReaderState get_state()
     {
@@ -70,8 +67,8 @@ public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         bitTime = 0;
         syncValue = 0;
         currentFrameIndex = 0;
-        validFrameCount = 0;
-        frameAvailable = false;
+        running_frame_count = 0;
+        is_new_frame = false;
         state = NO_SYNC;
     }
 
@@ -222,8 +219,8 @@ public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
             // if this is the last bit of a frame
             if (syncValue == SYNC_PATTERN) {
-                frameAvailable = true; // signal that we've captured a full frame
-                validFrameCount++;
+                is_new_frame = true; // signal that we've captured a full frame
+                running_frame_count++;
                 frameBitCount = 0; // reset
 
                 // alternates between 0 and 1: if 1, becomes 0; if 0, becomes 1
@@ -301,11 +298,11 @@ private: // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     Used to detect the end of a frame. */
     const uint16_t SYNC_PATTERN = 0xBFFC;
     /* Read from incoming LTC. When matches SYNC_PATTERN, indicates end of a
-    frame (frameAvailable = true) */
+    frame (is_new_frame = true) */
     volatile uint16_t syncValue = 0x0;
 
     volatile uint16_t validBitCount = 0; // running counter of valid bits read
-    // counts bits up to 80, resets upon frameAvailable (got last bit of a frame)
+    // counts bits up to 80, resets upon is_new_frame (got last bit of a frame)
     volatile uint8_t frameBitCount = 0;
 
     volatile unsigned int bitTime = 0; // TODO: is this the width of the LTC bit in time? as in, 1sec / frame_rate / LTC's_80bits

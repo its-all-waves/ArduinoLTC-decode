@@ -12,11 +12,12 @@
 #define HALL_SENSOR_PIN 2
 
 #define FRAME_RATE 24 // mock for DEBUG -> TODO: detect this
+#define DISPLAY_HOLD_ON_CLAP_MILLISEC 500
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // PROTOTYPES
 
-void set_flags_for_LTC_decoding_interrupt();
+void set_flags_for_LTC_reading_interrupt();
 void set_flags_for_hall_sensor_interrupt();
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -24,16 +25,17 @@ void set_flags_for_hall_sensor_interrupt();
 
 LTCReader reader;
 
-TCDisplayController tc_display_controller;
-// set to true in the clapper ISR, false when main loop detects true
-volatile boolean should_turn_on_display;
+DFRobot_8DigSegDisplController tc_display_controller;
 
-// hall effect sensor macros and globals
-volatile boolean just_clapped = false; // true -> display tc_on_clap
-volatile boolean clapper_is_open = false; // true -> display on // hall sensor HIGH = clapper_is_open
-/* the string that's displayed upon clap - a copy of the tc_string at clap.
-also displayed upon boot up to indicate boot status. */
-char* tc_on_clap = "--.--.--.--";
+// hall sensor HIGH = clapper_is_open
+volatile boolean clapper_is_open = false;
+volatile boolean just_clapped = false;
+
+// set to true in the clapper ISR, false when main loop detects true
+volatile boolean should_turn_on_display = true;
+
+// displayed upon clap
+char* tc_at_clap = "--.--.--.--";
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // MAIN ARDUINO FUNCTIONS
@@ -51,7 +53,7 @@ void setup()
     pinMode(HALL_SENSOR_PIN, INPUT);
 
     set_flags_for_hall_sensor_interrupt();
-    set_flags_for_LTC_decoding_interrupt();
+    set_flags_for_LTC_reading_interrupt();
 
     tc_display_controller.init_display();
 
@@ -77,10 +79,12 @@ void loop()
 
     // STATE IS SYNC
 
-    // clapper handling (via hall effect sensor)
     if (just_clapped) {
         just_clapped = false; // reset for next clap
-        tc_display_controller.freeze_display(tc_on_clap, reader.get_ub_string());
+        tc_display_controller.freeze_display(
+            tc_at_clap, DISPLAY_HOLD_ON_CLAP_MILLISEC);
+        tc_display_controller.freeze_display(
+            reader.get_ub_string(), DISPLAY_HOLD_ON_CLAP_MILLISEC);
     }
 
     else if (clapper_is_open) {
@@ -88,29 +92,29 @@ void loop()
             should_turn_on_display = false;
             tc_display_controller.display_on();
         }
-        if (reader.frameAvailable) {
+        if (reader.is_new_frame) {
             tc_display_controller.print(reader.get_tc_string());
         }
     }
 
-    else {
+    else { // clapper has been closed for some time
         if (reader.is_new_second()) {
             tc_display_controller.flash_sync_indicator(FRAME_RATE);
         }
     }
 
     // leave if we've yet to see the end of this frame
-    if (!reader.frameAvailable)
+    if (!reader.is_new_frame)
         return;
 
     // reached end of a frame, so there's new data to print
 
-    reader.frameAvailable = false; // reset
+    reader.is_new_frame = false; // reset
 
     reader.decode_tc();
     reader.decode_ub();
 
-    Serial.println("Frame: " + String(reader.validFrameCount - 1) + " - " + reader.get_tc_string());
+    Serial.println("Frame: " + String(reader.running_frame_count - 1) + " - " + reader.get_tc_string());
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -164,7 +168,7 @@ tc_reader_clapper_change_interrupt_routine()
         Serial.println("OPEN CLAPPER");
     } else {
         just_clapped = true;
-        strcpy(tc_on_clap, reader.get_tc_string()); // capture the timecode at the clap
+        strcpy(tc_at_clap, reader.get_tc_string()); // capture the timecode at the clap
         Serial.println("CLOSE CLAPPER");
     }
 
@@ -174,7 +178,7 @@ tc_reader_clapper_change_interrupt_routine()
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // HELPERS
 
-void set_flags_for_LTC_decoding_interrupt()
+void set_flags_for_LTC_reading_interrupt()
 {
     noInterrupts();
 
