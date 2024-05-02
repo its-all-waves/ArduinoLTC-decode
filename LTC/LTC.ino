@@ -110,10 +110,7 @@ void loop()
     reader.decode_tc();
     reader.decode_ub();
 
-    Serial.print("Frame: ");
-    Serial.print(reader.validFrameCount - 1);
-    Serial.print(" - ");
-    Serial.println(reader.get_tc_string());
+    Serial.println("Frame: " + String(reader.validFrameCount - 1) + " - " + reader.get_tc_string());
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
