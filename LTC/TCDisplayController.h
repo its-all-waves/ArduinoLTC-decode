@@ -1,9 +1,8 @@
 #include "DFRobot_LedDisplayModule.h"
 
 #define BOOTUP_STRING "--.--.--.--"
-#define DISPLAY_HOLD_ON_CLAP_MILLISEC 500
 
-class TCDisplayController {
+class DFRobot_8DigSegDisplController {
 private:
     // instantiate segmented display object with the IIC address of the display
     DFRobot_LedDisplayModule display = DFRobot_LedDisplayModule(&Wire, 0xE0);
@@ -58,13 +57,10 @@ public:
         display.displayOff();
     }
 
-    void freeze_display(char* tc_on_clap, char* ub)
+    void freeze_display(char* tc_or_ub, int duration)
     {
-        print(tc_on_clap);
-        delay(DISPLAY_HOLD_ON_CLAP_MILLISEC);
-
-        print(ub);
-        delay(DISPLAY_HOLD_ON_CLAP_MILLISEC);
+        print(tc_or_ub);
+        delay(duration);
     }
 };
 
