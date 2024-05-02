@@ -120,11 +120,9 @@ void loop()
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // INTERRUPT ROUTINES
 
-// #define LAST_LTC_BIT_INDEX 79
 /* triggered when a transition (?) is detected at the input capture pin */
 #define tc_reader_interrupt_routine() ISR(TIMER1_CAPT_vect)
 
-// volatile boolean curr_bit_val, last_bit_val;
 tc_reader_interrupt_routine()
 {
     /*
