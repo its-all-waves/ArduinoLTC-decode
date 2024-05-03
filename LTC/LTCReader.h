@@ -1,4 +1,5 @@
 #include "LTCFrame.h"
+#include "State.h"
 
 typedef struct TC {
     // hours, minutes, seconds, frames
@@ -8,11 +9,6 @@ typedef struct TC {
 typedef struct UB {
     uint8_t ub0 = 0, ub1 = 0, ub2 = 0, ub3 = 0,
             ub4 = 0, ub5 = 0, ub6 = 0, ub7 = 0;
-};
-
-typedef enum ReaderState {
-    NO_SYNC,
-    SYNC,
 };
 
 // If the time since the LTC signal's phase change is < this, it's not a valid signal

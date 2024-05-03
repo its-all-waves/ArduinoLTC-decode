@@ -1,6 +1,13 @@
 #include "Arduino.h"
 #include <string.h>
 
+#include "State.h"
+
+#include "EventData.h"
+
+#include "EventCallbacks.h"
+
+#include "Dispatcher.h"
 #include "LTCReader.h"
 #include "TCDisplayController.h"
 
@@ -23,6 +30,8 @@ void set_flags_for_hall_sensor_interrupt();
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GLOBAL VARIABLES
 
+Dispatcher dispatcher = Dispatcher::get();
+
 LTCReader reader;
 
 DFRobot_8DigSegDisplController tc_display_controller;
@@ -39,9 +48,14 @@ char* tc_at_clap = "--.--.--.--";
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // MAIN ARDUINO FUNCTIONS
+void TEST_HANDLER(EventData data)
+{
+    Serial.println("EVENT HANDLED!");
+}
 
 void setup()
 {
+
     Serial.begin(115200);
     Serial.println("PROGRAM RUNNING"); // DEBUG
 
@@ -52,15 +66,23 @@ void setup()
     digitalWrite(LOCK_LED_PIN, LOW);
     pinMode(HALL_SENSOR_PIN, INPUT);
 
-    set_flags_for_hall_sensor_interrupt();
-    set_flags_for_LTC_reading_interrupt();
-
     tc_display_controller.init_display();
+
+    noInterrupts();
+
+    set_flags_for_hall_sensor_interrupt();
 
     clapper_is_open = digitalRead(HALL_SENSOR_PIN);
     if (!clapper_is_open) {
         tc_display_controller.display_off();
     }
+
+    // EVENT SUBSCRIPTIONS
+    dispatcher.subscribe(CLOSED_CLAPPER, TEST_HANDLER);
+
+    set_flags_for_LTC_reading_interrupt(); // LAST LINE OF SETUP!
+
+    interrupts();
 }
 
 /* check for a new frame to print, print it (decoder) */
@@ -71,6 +93,11 @@ void loop()
     digitalWrite(SIGNAL_LED_PIN, reader.is_reading_valid_frames() ? HIGH : LOW);
     // set sync lock indicator LED hi when synced
     digitalWrite(LOCK_LED_PIN, reader.get_state() == SYNC ? HIGH : LOW);
+
+    if (dispatcher.get_queue_len() > 0) {
+        // Serial.println("QUEUE HAS STUFF IN IT!");
+        dispatcher.flush_queue();
+    }
 
     if (reader.get_state() == NO_SYNC) {
         Serial.println("- NO SYNC -");
@@ -95,6 +122,9 @@ void loop()
         if (reader.is_new_frame) {
             tc_display_controller.print(reader.get_tc_string());
         }
+        // if (reader.is_new_second()) {
+        //     Serial.println(reader.get_tc_string());
+        // }
     }
 
     else { // clapper has been closed for some time
@@ -114,7 +144,7 @@ void loop()
     reader.decode_tc();
     reader.decode_ub();
 
-    Serial.println("Frame: " + String(reader.running_frame_count - 1) + " - " + reader.get_tc_string());
+    // Serial.println("Frame: " + String(reader.running_frame_count - 1) + " - " + reader.get_tc_string());
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -169,7 +199,8 @@ tc_reader_clapper_change_interrupt_routine()
     } else {
         just_clapped = true;
         strcpy(tc_at_clap, reader.get_tc_string()); // capture the timecode at the clap
-        Serial.println("CLOSE CLAPPER");
+        // Serial.println("CLOSE CLAPPER");
+        dispatcher.queue_event(OPENED_CLAPPER, EventData(tc_at_clap));
     }
 
     interrupts();
