@@ -27,7 +27,6 @@ must be a 1. If longer, it must be a 0. */
 
 class LTCReader {
 public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    volatile boolean is_new_frame = false; // true when received last bit of a frame
     unsigned long running_frame_count = 0; // resets when sync is lost
 
     ReaderState get_state()
@@ -55,6 +54,11 @@ public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         return ub_string;
     }
 
+    bool is_new_frame()
+    {
+        return _is_new_frame;
+    }
+
     boolean is_new_second()
     {
         return tc.f == 0;
@@ -73,7 +77,7 @@ public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         sync_pattern_comparator = 0;
         currentFrameIndex = 0;
         running_frame_count = 0;
-        is_new_frame = false;
+        _is_new_frame = false;
         state = NO_SYNC;
     }
 
@@ -90,6 +94,10 @@ public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         tc.m = (curr_frame[5] & 0x07) * 10 + (curr_frame[4] & 0x0F); // 0x07 -> smallest 3 bits (4+2+1=7)
         tc.s = (curr_frame[3] & 0x07) * 10 + (curr_frame[2] & 0x0F); // 0x0F -> smallest 4 bits (8+4+2+1=F)
         tc.f = (curr_frame[1] & 0x03) * 10 + (curr_frame[0] & 0x0F);
+
+        // if (tc.f != 0) {
+        //     _is_new_frame = false;
+        // }
 
         /* Explanation for Dummies
 
@@ -204,7 +212,7 @@ public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
     /* Currently a misnomer. Returns true if state changes or reached the end of
     a valid frame. */
-    boolean state_changed()
+    bool state_changed()
     {
         switch (state) {
         case NO_SYNC:
@@ -225,7 +233,7 @@ public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
             // if this is the last bit of a frame
             if (sync_pattern_comparator == SYNC_PATTERN) {
-                is_new_frame = true; // signal that we've captured a full frame
+                _is_new_frame = true; // signal that we've captured a full frame
                 running_frame_count++;
                 bits_read_of_curr_frame = 0; // reset
 
@@ -233,6 +241,9 @@ public: // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
                 currentFrameIndex = 1 - currentFrameIndex;
 
                 return true;
+
+            } else if (tc.f != 0) {
+                _is_new_frame = false;
             }
             break;
         }
@@ -301,8 +312,9 @@ private: // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     UB ub;
 
     char* tc_string = "00.00.00.00";
-    char* ub_string = "00.00.00.00";
+    char* ub_string = "UB.UB.UB.UB";
 
+    volatile bool _is_new_frame = false; // true when received last bit of a frame
     /* The LTC spec's sync word: fixed bit pattern 0011 1111 1111 1101.
     Used to detect the end of a frame. */
     const uint16_t SYNC_PATTERN = 0xBFFC;
@@ -328,5 +340,5 @@ private: // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     };
     byte currentFrameIndex = 0; // index of frames[2] -- can be 0 or 1 (ASSUMPTION)
 
-    volatile boolean current_bit_val, last_bit_val;
+    volatile bool current_bit_val, last_bit_val;
 };

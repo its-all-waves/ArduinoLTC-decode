@@ -49,19 +49,18 @@ public:
                 : level);
     }
 
-    void flash_sync_indicator(/* uint8_t frame_rate */)
+    void flash_sync_indicator()
     {
         display.displayOn();
         display.print(" ", " ", " ", ".", " ", " ", " ", " ");
-        // delay(1000 / frame_rate);
         delay(1000 / 24);
         display.displayOff();
     }
 
-    void freeze_display(char* tc_or_ub, int duration)
+    void freeze_display(char* tc_or_ub, int duration_ms)
     {
         print(tc_or_ub);
-        delay(duration);
+        delay(duration_ms);
     }
 };
 

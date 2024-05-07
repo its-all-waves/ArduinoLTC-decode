@@ -25,7 +25,7 @@
 #define HALL_SENSOR_PIN 2
 
 #define FRAME_RATE 24 // mock for DEBUG -> TODO: detect this
-#define DISPLAY_HOLD_ON_CLAP_MILLISEC 500
+#define DISPLAY_FREEZE_MILLIS 1000
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // PROTOTYPES
@@ -41,9 +41,9 @@ enum DisplayInstruction : uint8_t /* 1 byte guarantees an atomic operation getti
     TURN_OFF,
     TURN_ON,
     UPDATE,
+    FREEZE,
     INDICATE_SYNC, // when clapper is close / display is "off"
 };
-
 volatile DisplayInstruction display_instruction = NONE;
 
 // Dispatcher dispatcher = Dispatcher::get();
@@ -60,7 +60,7 @@ volatile boolean just_clapped = false;
 volatile boolean display_on = true;
 
 // displayed upon clap
-char* tc_at_clap = "--.--.--.--";
+// char* tc_at_clap = "--.--.--.--";
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // MAIN ARDUINO FUNCTIONS
@@ -90,12 +90,8 @@ void setup()
 
     clapper_is_open = digitalRead(HALL_SENSOR_PIN);
     if (!clapper_is_open) {
-        tc_display_controller.display_off();
-        // display_instruction = TURN_OFF;
+        display_instruction = TURN_OFF;
     }
-
-    // EVENT SUBSCRIPTIONS
-    // dispatcher.subscribe(CLOSED_CLAPPER, TEST_HANDLER);
 
     set_flags_for_LTC_reading_interrupt(); // LAST LINE OF SETUP!
 
@@ -106,34 +102,37 @@ void setup()
 
 void handle_display_instruction(
     volatile DisplayInstruction& instruction,
-    char tc_chars[TC_CHARS_LEN])
-
+    char tc_chars[TC_CHARS_LEN],
+    char ub_chars[TC_CHARS_LEN])
 {
-    // DEBUG_PRINTLN("HIT HANDLE DISPLAY INSTRUCTION");
     switch (instruction) {
     case NONE:
         break;
     case UPDATE:
-        instruction = NONE;
         // DEBUG_PRINTLN("HIT CASE UPDATE");
+        instruction = NONE;
         tc_display_controller.print(tc_chars);
         break;
     case TURN_OFF:
+        // DEBUG_PRINTLN("HIT CASE TURN OFF");
         instruction = NONE;
-        DEBUG_PRINTLN("HIT CASE TURN OFF");
         tc_display_controller.display_off();
         break;
     case TURN_ON:
+        // DEBUG_PRINTLN("HIT CASE TURN ON");
         instruction = NONE;
-        DEBUG_PRINTLN("HIT CASE TURN ON");
         tc_display_controller.display_on();
         break;
-    case INDICATE_SYNC:
+    case FREEZE:
+        // DEBUG_PRINTLN("HIT CASE FREEZE");
         instruction = NONE;
+        tc_display_controller.freeze_display(tc_chars, DISPLAY_FREEZE_MILLIS);
+        tc_display_controller.freeze_display(ub_chars, DISPLAY_FREEZE_MILLIS);
+        break;
+    case INDICATE_SYNC:
         DEBUG_PRINTLN("HIT CASE INDICATE SYNC");
-        // if (should_blink) {
-        tc_display_controller.flash_sync_indicator(/* FRAME_RATE */);
-        // }
+        instruction = NONE;
+        tc_display_controller.flash_sync_indicator();
         break;
     }
 }
@@ -154,32 +153,28 @@ void loop()
     // STATE IS SYNC
 
     // leave if we've yet to see the end of this frame
-    if (!reader.is_new_frame) {
+    if (!reader.is_new_frame()) {
         return;
     }
-    reader.is_new_frame = false;
+
+    reader.decode_tc();
+    reader.decode_ub();
 
     // reached end of a frame, so there's a new frame to print
     handle_display_instruction(
         display_instruction,
-        display_instruction == UPDATE ? reader.get_tc_string() : NULL);
-
-    reader.decode_tc();
-    reader.decode_ub();
+        display_instruction == UPDATE || display_instruction == FREEZE
+            ? reader.get_tc_string()
+            : NULL,
+        display_instruction == FREEZE
+            ? reader.get_ub_string()
+            : NULL);
 
     if (clapper_is_open) {
         display_instruction = UPDATE;
     } else if (reader.is_new_second()) {
         display_instruction = INDICATE_SYNC;
     }
-
-    // if (reader.is_new_second() && !clapper_is_open) {
-    //     // DEBUG_PRINTLN("CLAPPER IS CLOSED");
-    //     // DEBUG_PRINTLN("HERE?");
-    //     display_instruction = INDICATE_SYNC;
-    // }
-
-    // DEBUG_PRINTLN("Frame: " + String(reader.running_frame_count - 1) + " - " + reader.get_tc_string());
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -190,7 +185,6 @@ void loop()
 
 INTERRUPT_ROUTINE_tc_reader()
 {
-    // noInterrupts();
     /*
     Toggle edge capture. ICES1 = input capture edge select. Specifies whether
     this capture should happen with the rising edge (ICES1 = 1) or the falling
@@ -203,12 +197,10 @@ INTERRUPT_ROUTINE_tc_reader()
     1. Apparently with each transition/firing of this ISR, we need to start
     listening for the opposite transition.
     */
-    TCCR1B ^= _BV(ICES1);
+    TCCR1B ^= _BV(ICES1); // toggle: listen for LO to HI : listen for HI to LO
     TCNT1 = 0; // reset counter
 
     reader.update(ICR1);
-
-    // interrupts();
 }
 
 /* Triggered upon signal loss (or discontinuity?) at input capture pin.
@@ -231,17 +223,13 @@ INTERRUPT_ROUTINE_tc_reader_clapper_change()
 
     clapper_is_open = digitalRead(HALL_SENSOR_PIN);
 
-    display_instruction = clapper_is_open ? TURN_ON : INDICATE_SYNC;
-
-    clapper_is_open ? DEBUG_PRINTLN("OPENED CLAPPER") : DEBUG_PRINTLN("CLOSED CLAPPER");
-
-    // if (clapper_is_open) {
-    //     DEBUG_PRINTLN("OPENED CLAPPER");
-    //     display_instruction = TURN_ON;
-    // } else {
-    //     DEBUG_PRINTLN("CLOSED CLAPPER");
-    //     display_instruction = INDICATE_SYNC;
-    // }
+    if (clapper_is_open) {
+        DEBUG_PRINTLN("OPENED CLAPPER");
+        display_instruction = TURN_ON;
+    } else {
+        DEBUG_PRINTLN("CLOSED CLAPPER");
+        display_instruction = FREEZE;
+    }
 
     interrupts();
 }
