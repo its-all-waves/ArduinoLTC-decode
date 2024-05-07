@@ -12,7 +12,7 @@ public:
     {
         // wait for led display to init
         while (display.begin(display.e8Bit) != 0) {
-            Serial.println("Failed to initialize the display, please confirm the display connection!");
+            DEBUG_PRINTLN("Failed to initialize the display, please confirm the display connection!");
             delay(1000);
         }
         display.setDisplayArea(1, 2, 3, 4, 5, 6, 7, 8);
@@ -49,11 +49,12 @@ public:
                 : level);
     }
 
-    void flash_sync_indicator(uint8_t frame_rate)
+    void flash_sync_indicator(/* uint8_t frame_rate */)
     {
         display.displayOn();
         display.print(" ", " ", " ", ".", " ", " ", " ", " ");
-        delay(1000 / frame_rate);
+        // delay(1000 / frame_rate);
+        delay(1000 / 24);
         display.displayOff();
     }
 

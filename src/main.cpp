@@ -1,13 +1,19 @@
+
 #include "Arduino.h"
 #include <string.h>
 
-#include "State.h"
+// DEBUGGING
+// #define DEBUG_MODE // COMMENT THIS LINE FOR NO DEBUGGING OR TO USE SERIAL CLASS
+#ifdef DEBUG_MODE
+#include "avr8-stub.h"
+#include "app_api.h" // only needed with flash breakpoints
+#define DEBUG_PRINT(x)
+#define DEBUG_PRINTLN(x)
+#else
+#define DEBUG_PRINT(x) Serial.print(x)
+#define DEBUG_PRINTLN(x) Serial.println(x)
+#endif // DEBUG_MODE
 
-#include "EventData.h"
-
-#include "EventCallbacks.h"
-
-#include "Dispatcher.h"
 #include "LTCReader.h"
 #include "TCDisplayController.h"
 
@@ -30,7 +36,17 @@ void set_flags_for_hall_sensor_interrupt();
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // GLOBAL VARIABLES
 
-Dispatcher dispatcher = Dispatcher::get();
+enum DisplayInstruction : uint8_t /* 1 byte guarantees an atomic operation getting or setting. My theory is, keeping these ops atomic will prevent a race condition between the main loop and the reader ISR, which is triggering around 2000(?) times per second. */ {
+    NONE = 10,
+    TURN_OFF,
+    TURN_ON,
+    UPDATE,
+    INDICATE_SYNC, // when clapper is close / display is "off"
+};
+
+volatile DisplayInstruction display_instruction = NONE;
+
+// Dispatcher dispatcher = Dispatcher::get();
 
 LTCReader reader;
 
@@ -41,23 +57,23 @@ volatile boolean clapper_is_open = false;
 volatile boolean just_clapped = false;
 
 // set to true in the clapper ISR, false when main loop detects true
-volatile boolean should_turn_on_display = true;
+volatile boolean display_on = true;
 
 // displayed upon clap
 char* tc_at_clap = "--.--.--.--";
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // MAIN ARDUINO FUNCTIONS
-void TEST_HANDLER(EventData data)
-{
-    Serial.println("EVENT HANDLED!");
-}
-
 void setup()
 {
+#ifdef DEBUG_MODE
+    debug_init();
+#endif // DEBUG_MODE
 
+#ifndef DEBUG_MODE
     Serial.begin(115200);
-    Serial.println("PROGRAM RUNNING"); // DEBUG
+#endif
+    DEBUG_PRINTLN("PROGRAM RUNNING"); // DEBUG
 
     pinMode(LTC_IN_PIN, INPUT); // ICP pin (digital pin 8 on arduino) as input
     pinMode(SIGNAL_LED_PIN, OUTPUT);
@@ -75,17 +91,53 @@ void setup()
     clapper_is_open = digitalRead(HALL_SENSOR_PIN);
     if (!clapper_is_open) {
         tc_display_controller.display_off();
+        // display_instruction = TURN_OFF;
     }
 
     // EVENT SUBSCRIPTIONS
-    dispatcher.subscribe(CLOSED_CLAPPER, TEST_HANDLER);
+    // dispatcher.subscribe(CLOSED_CLAPPER, TEST_HANDLER);
 
     set_flags_for_LTC_reading_interrupt(); // LAST LINE OF SETUP!
 
     interrupts();
 }
 
-/* check for a new frame to print, print it (decoder) */
+#define TC_CHARS_LEN 11
+
+void handle_display_instruction(
+    volatile DisplayInstruction& instruction,
+    char tc_chars[TC_CHARS_LEN])
+
+{
+    // DEBUG_PRINTLN("HIT HANDLE DISPLAY INSTRUCTION");
+    switch (instruction) {
+    case NONE:
+        break;
+    case UPDATE:
+        instruction = NONE;
+        // DEBUG_PRINTLN("HIT CASE UPDATE");
+        tc_display_controller.print(tc_chars);
+        break;
+    case TURN_OFF:
+        instruction = NONE;
+        DEBUG_PRINTLN("HIT CASE TURN OFF");
+        tc_display_controller.display_off();
+        break;
+    case TURN_ON:
+        instruction = NONE;
+        DEBUG_PRINTLN("HIT CASE TURN ON");
+        tc_display_controller.display_on();
+        break;
+    case INDICATE_SYNC:
+        instruction = NONE;
+        DEBUG_PRINTLN("HIT CASE INDICATE SYNC");
+        // if (should_blink) {
+        tc_display_controller.flash_sync_indicator(/* FRAME_RATE */);
+        // }
+        break;
+    }
+}
+
 void loop()
 {
     // indicate valid LTC signal -> set signal LED hi once we've counted 80 bits
@@ -94,57 +146,40 @@ void loop()
     // set sync lock indicator LED hi when synced
     digitalWrite(LOCK_LED_PIN, reader.get_state() == SYNC ? HIGH : LOW);
 
-    if (dispatcher.get_queue_len() > 0) {
-        // Serial.println("QUEUE HAS STUFF IN IT!");
-        dispatcher.flush_queue();
-    }
-
     if (reader.get_state() == NO_SYNC) {
-        Serial.println("- NO SYNC -");
+        DEBUG_PRINTLN("- NO SYNC -");
         return;
     }
 
     // STATE IS SYNC
 
-    if (just_clapped) {
-        just_clapped = false; // reset for next clap
-        tc_display_controller.freeze_display(
-            tc_at_clap, DISPLAY_HOLD_ON_CLAP_MILLISEC);
-        tc_display_controller.freeze_display(
-            reader.get_ub_string(), DISPLAY_HOLD_ON_CLAP_MILLISEC);
-    }
-
-    else if (clapper_is_open) {
-        if (should_turn_on_display) {
-            should_turn_on_display = false;
-            tc_display_controller.display_on();
-        }
-        if (reader.is_new_frame) {
-            tc_display_controller.print(reader.get_tc_string());
-        }
-        // if (reader.is_new_second()) {
-        //     Serial.println(reader.get_tc_string());
-        // }
-    }
-
-    else { // clapper has been closed for some time
-        if (reader.is_new_second()) {
-            tc_display_controller.flash_sync_indicator(FRAME_RATE);
-        }
-    }
-
     // leave if we've yet to see the end of this frame
-    if (!reader.is_new_frame)
+    if (!reader.is_new_frame) {
         return;
+    }
+    reader.is_new_frame = false;
 
-    // reached end of a frame, so there's new data to print
-
-    reader.is_new_frame = false; // reset
+    // reached end of a frame, so there's a new frame to print
+    handle_display_instruction(
+        display_instruction,
+        display_instruction == UPDATE ? reader.get_tc_string() : NULL);
 
     reader.decode_tc();
     reader.decode_ub();
 
-    // Serial.println("Frame: " + String(reader.running_frame_count - 1) + " - " + reader.get_tc_string());
+    if (clapper_is_open) {
+        display_instruction = UPDATE;
+    } else if (reader.is_new_second()) {
+        display_instruction = INDICATE_SYNC;
+    }
+
+    // if (reader.is_new_second() && !clapper_is_open) {
+    //     // DEBUG_PRINTLN("CLAPPER IS CLOSED");
+    //     // DEBUG_PRINTLN("HERE?");
+    //     display_instruction = INDICATE_SYNC;
+    // }
+
+    // DEBUG_PRINTLN("Frame: " + String(reader.running_frame_count - 1) + " - " + reader.get_tc_string());
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -155,6 +190,7 @@ void loop()
 
 INTERRUPT_ROUTINE_tc_reader()
 {
+    // noInterrupts();
     /*
     Toggle edge capture. ICES1 = input capture edge select. Specifies whether
     this capture should happen with the rising edge (ICES1 = 1) or the falling
@@ -171,6 +207,8 @@ INTERRUPT_ROUTINE_tc_reader()
     TCNT1 = 0; // reset counter
 
     reader.update(ICR1);
+
+    // interrupts();
 }
 
 /* Triggered upon signal loss (or discontinuity?) at input capture pin.
@@ -185,23 +223,25 @@ INTERRUPT_ROUTINE_tc_reader_signal_loss()
 
 /* Triggered by state change of hall sensor on pin D2, i.e. on clap or open
 clapper. */
-#define tc_reader_clapper_change_interrupt_routine() ISR(PCINT2_vect)
+#define INTERRUPT_ROUTINE_tc_reader_clapper_change() ISR(PCINT2_vect)
 
-tc_reader_clapper_change_interrupt_routine()
+INTERRUPT_ROUTINE_tc_reader_clapper_change()
 {
     noInterrupts();
 
     clapper_is_open = digitalRead(HALL_SENSOR_PIN);
 
-    if (clapper_is_open) {
-        should_turn_on_display = true;
-        Serial.println("OPEN CLAPPER");
-    } else {
-        just_clapped = true;
-        strcpy(tc_at_clap, reader.get_tc_string()); // capture the timecode at the clap
-        // Serial.println("CLOSE CLAPPER");
-        dispatcher.queue_event(OPENED_CLAPPER, EventData(tc_at_clap));
-    }
+    display_instruction = clapper_is_open ? TURN_ON : INDICATE_SYNC;
+
+    clapper_is_open ? DEBUG_PRINTLN("OPENED CLAPPER") : DEBUG_PRINTLN("CLOSED CLAPPER");
+
+    // if (clapper_is_open) {
+    //     DEBUG_PRINTLN("OPENED CLAPPER");
+    //     display_instruction = TURN_ON;
+    // } else {
+    //     DEBUG_PRINTLN("CLOSED CLAPPER");
+    //     display_instruction = INDICATE_SYNC;
+    // }
 
     interrupts();
 }

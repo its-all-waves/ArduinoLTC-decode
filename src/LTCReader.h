@@ -1,12 +1,16 @@
 #include "LTCFrame.h"
-#include "State.h"
 
-typedef struct TC {
+enum ReaderState {
+    NO_SYNC,
+    SYNC
+};
+
+struct TC {
     // hours, minutes, seconds, frames
     uint8_t h = 0, m = 0, s = 0, f = 0;
 };
 
-typedef struct UB {
+struct UB {
     uint8_t ub0 = 0, ub1 = 0, ub2 = 0, ub3 = 0,
             ub4 = 0, ub5 = 0, ub6 = 0, ub7 = 0;
 };

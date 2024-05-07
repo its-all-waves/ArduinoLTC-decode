@@ -8,31 +8,33 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "/Users/ian/Documents/PlatformIO/Projects/Arduino Debug Test 0/include",
-                "/Users/ian/Documents/PlatformIO/Projects/Arduino Debug Test 0/src",
-                "/Users/ian/Documents/PlatformIO/Projects/Arduino Debug Test 0/.pio/libdeps/uno/avr-debugger/avr8-stub",
+                "/Users/ian/Documents/CODE/Arduino/timecode/ArduinoLTC-decode/include",
+                "/Users/ian/Documents/CODE/Arduino/timecode/ArduinoLTC-decode/src",
+                "/Users/ian/Documents/CODE/Arduino/timecode/ArduinoLTC-decode/.pio/libdeps/uno/DFRobot_LedDisplayModule",
+                "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/Wire/src",
+                "/Users/ian/Documents/CODE/Arduino/timecode/ArduinoLTC-decode/.pio/libdeps/uno/avr-debugger/avr8-stub",
                 "/Users/ian/.platformio/packages/framework-arduino-avr/cores/arduino",
                 "/Users/ian/.platformio/packages/framework-arduino-avr/variants/standard",
                 "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/EEPROM/src",
                 "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/HID/src",
                 "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/SPI/src",
                 "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/SoftwareSerial/src",
-                "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/Wire/src",
                 ""
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "/Users/ian/Documents/PlatformIO/Projects/Arduino Debug Test 0/include",
-                    "/Users/ian/Documents/PlatformIO/Projects/Arduino Debug Test 0/src",
-                    "/Users/ian/Documents/PlatformIO/Projects/Arduino Debug Test 0/.pio/libdeps/uno/avr-debugger/avr8-stub",
+                    "/Users/ian/Documents/CODE/Arduino/timecode/ArduinoLTC-decode/include",
+                    "/Users/ian/Documents/CODE/Arduino/timecode/ArduinoLTC-decode/src",
+                    "/Users/ian/Documents/CODE/Arduino/timecode/ArduinoLTC-decode/.pio/libdeps/uno/DFRobot_LedDisplayModule",
+                    "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/Wire/src",
+                    "/Users/ian/Documents/CODE/Arduino/timecode/ArduinoLTC-decode/.pio/libdeps/uno/avr-debugger/avr8-stub",
                     "/Users/ian/.platformio/packages/framework-arduino-avr/cores/arduino",
                     "/Users/ian/.platformio/packages/framework-arduino-avr/variants/standard",
                     "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/EEPROM/src",
                     "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/HID/src",
                     "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/SPI/src",
                     "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/SoftwareSerial/src",
-                    "/Users/ian/.platformio/packages/framework-arduino-avr/libraries/Wire/src",
                     ""
                 ]
             },
@@ -42,6 +44,7 @@
                 "F_CPU=16000000L",
                 "ARDUINO_ARCH_AVR",
                 "ARDUINO=10808",
+                "__PLATFORMIO_BUILD_DEBUG__",
                 "__AVR_ATmega328P__",
                 ""
             ],
